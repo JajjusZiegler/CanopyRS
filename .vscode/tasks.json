@@ -1,0 +1,121 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+
+        // ── Environment ───────────────────────────────────────────────────────
+        {
+            "label": "Check: verify installation",
+            "type": "shell",
+            "command": "bash ${CANOPYRS_REPO}/check_install.sh",
+            "group": "test",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Check: verify M: drive mount",
+            "type": "shell",
+            "command": "bash ${CANOPYRS_REPO}/ensure_mount.sh",
+            "group": "test",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+
+        // ── Batch inference ───────────────────────────────────────────────
+        {
+            "label": "Batch: SAM3 quality — Marteloskop (all dates)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env bash ${CANOPYRS_REPO}/batch_infer.sh '${ORTHOMOSAIC_DIR}/Marteloskop'",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Batch: SAM3 quality — Pfynwald (all dates)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env bash ${CANOPYRS_REPO}/batch_infer.sh '${ORTHOMOSAIC_DIR}/Pfynwald'",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Batch: dry-run — Marteloskop (preview only)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env bash ${CANOPYRS_REPO}/batch_infer.sh --dry-run '${ORTHOMOSAIC_DIR}/Marteloskop'",
+            "group": "test",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+
+        // ── RGB 1cm temporal batch ─────────────────────────────────────────────
+        {
+            "label": "Batch: RGB 1cm temporal — Marteloskop (all dates, with AOI)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env bash ${CANOPYRS_REPO}/batch_infer_rgb_temporal.sh --aoi '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Marteloskop/AOI_Marteloskop.gpkg' '${ORTHOMOSAIC_DIR}/Marteloskop'",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Batch: RGB 1cm temporal — Marteloskop (dry-run)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env bash ${CANOPYRS_REPO}/batch_infer_rgb_temporal.sh --dry-run --aoi '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Marteloskop/AOI_Marteloskop.gpkg' '${ORTHOMOSAIC_DIR}/Marteloskop'",
+            "group": "test",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+
+        // ── Detection presets ─────────────────────────────────────────────────
+        {
+            "label": "Infer: detect — Faster R-CNN (sample raster)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/infer.py -c preset_det_single_S_fasterrcnn_r50 -i ${CANOPYRS_REPO}/assets/20240130_zf2tower_m3m_rgb_test_crop.tif -o /tmp/canopyrs_det_test",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Infer: detect — Faster R-CNN (Pfynwald orthomosaic)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/infer.py -c preset_det_single_S_fasterrcnn_r50 -i '${ORTHOMOSAIC_DIR}/Pfynwald/20250704/exports/20250704_Pfynwald_rgb_model_ortho_smooth_100.tif' -o /tmp/canopyrs_pfynwald_det",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+
+        // ── Segmentation presets ──────────────────────────────────────────────
+        {
+            "label": "Infer: segment — SAM2 (Pfynwald orthomosaic)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/infer.py -c preset_seg_multi_NQOS_SAM2 -i '${ORTHOMOSAIC_DIR}/Pfynwald/20250704/exports/20250704_Pfynwald_rgb_model_ortho_smooth_100.tif' -o /tmp/canopyrs_pfynwald_sam2",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Infer: segment — SAM3 quality (Pfynwald orthomosaic)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/infer.py -c preset_seg_multi_NQOS_selvamask_SAM3_FT_quality -i '${ORTHOMOSAIC_DIR}/Pfynwald/20250704/exports/20250704_Pfynwald_rgb_model_ortho_smooth_100.tif' -o /tmp/canopyrs_pfynwald_sam3_quality",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Infer: segment — SAM3 fast (Pfynwald orthomosaic)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/infer.py -c preset_seg_multi_NQOS_selvamask_SAM3_FT_fast -i '${ORTHOMOSAIC_DIR}/Pfynwald/20250704/exports/20250704_Pfynwald_rgb_model_ortho_smooth_100.tif' -o /tmp/canopyrs_pfynwald_sam3_fast",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+
+        // ── Custom input ──────────────────────────────────────────────────────
+        {
+            "label": "Infer: SAM3 quality — custom input (edit task to change path)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/infer.py -c preset_seg_multi_NQOS_selvamask_SAM3_FT_quality -i '/mnt/m/YOUR/PATH/TO/orthomosaic.tif' -o /tmp/canopyrs_custom_output",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        }
+    ]
+}

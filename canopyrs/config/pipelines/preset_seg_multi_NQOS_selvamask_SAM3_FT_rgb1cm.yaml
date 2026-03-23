@@ -1,0 +1,41 @@
+# High-Resolution RGB Baseline Pipeline
+#
+# Designed for 1 cm/px RGB orthomosaics (e.g. P1 single-date or best-date
+# acquisition). Tiles are resampled to 4.5 cm for DINO and SAM3 inference,
+# matching the training-data resolution of both fine-tuned models.
+#
+# Pipeline: tilerizer → DINO Swin-L (FT) → aggregator (IoU dedup)
+#            → SAM3 (FT) → aggregator (ioa-disambiguate final)
+#
+# Key differences from the default quality preset:
+#   - tile_overlap: 0.80  (vs 0.75) — extra coverage to reduce the
+#     impact of orthomosaic edge artifacts; combine with --aoi to fully
+#     exclude border artefact zones.
+#   - score_threshold on the first aggregator lowered slightly (0.35)
+#     to preserve tentative detections for the SAM3 refinement step.
+
+components_configs:
+  - tilerizer:
+      tile_type: tile
+      tile_size: 1777
+      tile_overlap: 0.80
+      ground_resolution: 0.045
+
+  - detector: detectors/dino_swinL_multi_NQOS_selvamask_FT.yaml
+
+  - aggregator:
+      nms_algorithm: 'iou'
+      score_threshold: 0.35
+      nms_threshold: 0.70
+      edge_band_buffer_percentage: 0.05
+      scores_weights: { 'detector_score': 1.0 }
+
+  - segmenter: segmenters/sam3_multi_selvamask_FT.yaml
+
+  - aggregator:
+      nms_algorithm: 'ioa-disambiguate'
+      score_threshold: 0.6
+      nms_threshold: 0.05
+      edge_band_buffer_percentage: 0.05
+      scores_weights: { 'detector_score': 0.5, 'segmenter_score': 0.5 }
+      scores_weighting_method: 'weighted_geometric_mean'

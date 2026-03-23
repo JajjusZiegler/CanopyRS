@@ -17,9 +17,11 @@ def get_config_path(config_name: str):
             config_path = Path(config_folder_path) / config_name
         else:
             config_path = Path(config_folder_path) / f'{config_name}.yaml'
-    # New style: flat pipeline yaml in config/pipelines/ (e.g. "preset_det_multi_NQOS_dino_swinL.yaml")
+    # New style: flat pipeline yaml in config/pipelines/ (with or without .yaml extension)
     elif (Path(config_folder_path) / 'pipelines' / config_name).is_file():
         config_path = Path(config_folder_path) / 'pipelines' / config_name
+    elif (Path(config_folder_path) / 'pipelines' / f'{config_name}.yaml').is_file():
+        config_path = Path(config_folder_path) / 'pipelines' / f'{config_name}.yaml'
     # Absolute/relative file path
     elif Path(config_name).is_file() and config_name.endswith('.yaml'):
         config_path = Path(config_name)
