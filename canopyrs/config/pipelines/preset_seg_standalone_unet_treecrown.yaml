@@ -1,0 +1,36 @@
+# U-Net Tree Crown – standalone (no detector) pipeline
+#
+# Fully prompt-free delineation using only the U-Net segmenter.
+# No DINO detector is needed – the U-Net directly segments all trees
+# from the tiled orthomosaic.
+#
+# This is the simplest / fastest entry point: good for a first test of
+# the model weights or for scenes where detection (DINO) is not available.
+#
+# Pipeline:
+#   tilerizer → U-Net TreeCrown → aggregator (ioa-disambiguate NMS)
+#
+# Setup:
+#   1. Download U-Net weights from:
+#        https://owncloud.gwdg.de/index.php/s/9cUza134XSOwZsB
+#   2. Edit canopyrs/config/segmenters/unet_treecrown.yaml and set
+#      checkpoint_path to the downloaded .pt file.
+#   Then run:
+#      python infer.py -c preset_seg_standalone_unet_treecrown \
+#                      -i <orthomosaic.tif> -o <output_dir>
+
+components_configs:
+  - tilerizer:
+      tile_type: tile
+      tile_size: 1777
+      tile_overlap: 0.75
+      ground_resolution: 0.045
+
+  - segmenter: segmenters/unet_treecrown.yaml
+
+  - aggregator:
+      nms_algorithm: 'ioa-disambiguate'
+      score_threshold: 0.0
+      nms_threshold: 0.05
+      edge_band_buffer_percentage: 0.05
+      scores_weights: { 'segmenter_score': 1.0 }

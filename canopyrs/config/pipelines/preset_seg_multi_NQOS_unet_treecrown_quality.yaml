@@ -1,0 +1,49 @@
+# U-Net Tree Crown – DINO-guided pipeline  (quality preset)
+#
+# Drop-in replacement for preset_seg_multi_NQOS_selvamask_SAM3_FT_quality
+# that swaps SAM3 for the prompt-free U-Net segmenter.
+#
+# The U-Net DOES NOT use box prompts, so it runs on the full tiles
+# independently of the detector.  The detector (DINO Swin-L FT) is still
+# used in the *aggregator* step to assign / weight detection scores.
+# Because the U-Net produces its own candidate crowns, the final aggregator
+# disambiguates between detector and U-Net outputs using ioa-disambiguate.
+#
+# Pipeline:
+#   tilerizer → DINO Swin-L (FT) → aggregator (IoU NMS)
+#             → U-Net TreeCrown  → aggregator (ioa-disambiguate final)
+#
+# Setup:
+#   1. Download U-Net weights from:
+#        https://owncloud.gwdg.de/index.php/s/9cUza134XSOwZsB
+#   2. Edit canopyrs/config/segmenters/unet_treecrown.yaml and set
+#      checkpoint_path to the downloaded .pt file.
+#   Then run:
+#      python infer.py -c preset_seg_multi_NQOS_unet_treecrown_quality \
+#                      -i <orthomosaic.tif> -o <output_dir>
+
+components_configs:
+  - tilerizer:
+      tile_type: tile
+      tile_size: 1777
+      tile_overlap: 0.75
+      ground_resolution: 0.045
+
+  - detector: detectors/dino_swinL_multi_NQOS_selvamask_FT.yaml
+
+  - aggregator:
+      nms_algorithm: 'iou'
+      score_threshold: 0.4
+      nms_threshold: 0.7
+      edge_band_buffer_percentage: 0.05
+      scores_weights: { 'detector_score': 1.0 }
+
+  - segmenter: segmenters/unet_treecrown.yaml
+
+  - aggregator:
+      nms_algorithm: 'ioa-disambiguate'
+      score_threshold: 0.0
+      nms_threshold: 0.05
+      edge_band_buffer_percentage: 0.05
+      scores_weights: { 'detector_score': 0.5, 'segmenter_score': 0.5 }
+      scores_weighting_method: 'weighted_geometric_mean'

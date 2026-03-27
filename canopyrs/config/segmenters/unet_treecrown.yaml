@@ -1,0 +1,57 @@
+# U-Net Tree Crown Delineation segmenter configuration
+#
+# Model: Freudenberg, Magdon & Nölke (2022) – U-Net multi-task
+#        (cover mask + outlines + distance transform)
+# Paper: https://doi.org/10.1007/s00521-022-07640-4
+# Code:  https://github.com/AWF-GAUG/TreeCrownDelineation
+#
+# ─── Checkpoint ────────────────────────────────────────────────────────────
+# Download the pre-trained weights (.pt TorchScript file) from:
+#   https://owncloud.gwdg.de/index.php/s/9cUza134XSOwZsB
+# Then set checkpoint_path to the local path of the downloaded file.
+# To ensemble multiple models separate the paths with '|':
+#   checkpoint_path: /path/to/model_a.pt|/path/to/model_b.pt
+# ───────────────────────────────────────────────────────────────────────────
+
+model: unet_treecrown
+checkpoint_path: /path/to/unet_treecrown.pt   # <-- change this
+
+# ─── Sliding-window inference ───────────────────────────────────────────────
+# window_size and stride are in pixels (tile-pixel space).
+# For 5 cm/px imagery a 256-pixel window covers a ~12.8 m² patch, which
+# matches the training data of the original model.
+# Increase window_size for higher-resolution inputs (e.g. 1 cm/px → 512-1024).
+window_size: 256
+stride: 224          # window_size - 32 is the default; reduce for more overlap
+batch_size_windows: 8
+
+# ─── Input normalisation ────────────────────────────────────────────────────
+divide_by: 255.0     # divides raw pixel values; use 1.0 if already in [0,1]
+
+# NDVI – only enable if the orthomosaic contains a NIR band
+append_ndvi: false
+red_band: 0
+nir_band: 3
+rescale_ndvi: false
+
+# apply_sigmoid: set to true only if the checkpoint was saved WITHOUT an
+# internal sigmoid layer on the mask/outline heads (most checkpoints on the
+# owncloud page already include sigmoid, so leave false).
+apply_sigmoid: false
+
+# ─── Watershed post-processing ──────────────────────────────────────────────
+min_dist: 10          # minimum distance between tree seed-point centres (px)
+sigma: 1              # Gaussian smoothing σ applied to the combined map
+label_threshold: 0.1  # minimum local-maximum height to count as a seed
+binary_threshold: 0.1 # foreground binary-mask threshold
+
+# ─── Polygon cleaning ───────────────────────────────────────────────────────
+area_min: 3           # minimum crown area (px²) – removes noise
+area_max: 1000000     # maximum crown area (px²)
+simplify_tolerance: 0.3
+
+# ─── Standard CanopyRS post-processing (polygon workers) ───────────────────
+pp_n_workers: 8
+pp_down_scale_masks_px: null   # not used by this model (polygons are native)
+pp_remove_rings: true
+pp_remove_small_geoms: 50
