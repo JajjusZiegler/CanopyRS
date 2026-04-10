@@ -3,6 +3,21 @@ TilerizerComponent with simplified architecture.
 
 Single __call__() method returns ComponentResult.
 Pipeline handles state updates. Tilerizer handles its own file I/O internally.
+
+Multispectral support (Path A – Early Resampling)
+--------------------------------------------------
+When ``data_state.ms_imagery_path`` is set, the tilerizer additionally creates
+resampled multispectral (MS) tiles that match every RGB tile in spatial extent
+**and** pixel dimensions.  Each MS tile is saved to::
+
+    <output_path>/ms_tiles/<same_filename_as_rgb_tile>
+
+The geographic bounding box of the RGB tile is re-used unchanged, so no
+coordinate transformation is needed downstream.  Resampling uses bilinear
+interpolation which is appropriate for continuous spectral data such as
+reflectance bands.  The resulting ``ms_tiles/`` directory path is stored on
+``data_state.ms_tiles_path`` so that subsequent SAM segmenters can load the
+co-registered MS tiles for dual-stream inference.
 """
 
 from pathlib import Path
@@ -10,6 +25,8 @@ from typing import Set, Optional, List
 
 import geopandas as gpd
 import rasterio
+from rasterio.windows import from_bounds
+from rasterio.enums import Resampling
 
 from geodataset.aoi import AOIConfig
 from geodataset.tilerize import RasterTilerizer, LabeledRasterTilerizer, RasterPolygonTilerizer
@@ -36,6 +53,7 @@ class TilerizerComponent(BaseComponent):
 
     Produces:
         - tiles_path  (always)
+        - ms_tiles_path (when data_state.ms_imagery_path is set)
         - infer_coco_path (only for 'tile_labeled' and 'polygon')
     """
 
@@ -115,6 +133,7 @@ class TilerizerComponent(BaseComponent):
         output_path: str,
         infer_gdf: gpd.GeoDataFrame = None,
         infer_aois_config: Optional[AOIConfig] = None,
+        ms_imagery_path: Optional[str] = None,
     ) -> 'DataState':
         """
         Run tilerizer standalone on raster imagery.
@@ -126,17 +145,23 @@ class TilerizerComponent(BaseComponent):
             infer_gdf: GeoDataFrame with labels/polygons
                         (required for tile_type='tile_labeled' or 'polygon')
             infer_aois_config: Area of Interest configuration (optional)
+            ms_imagery_path: Optional path to a co-registered multispectral
+                             orthomosaic.  When provided, resampled MS tiles are
+                             created alongside the RGB tiles.
 
         Returns:
-            DataState with tiling results (access .tiles_path for tile directory)
+            DataState with tiling results (access .tiles_path and
+            .ms_tiles_path for the tile directories)
 
         Example:
             result = TilerizerComponent.run_standalone(
                 config=TilerizerConfig(tile_type='tile', tile_size=512, ...),
-                imagery_path='./raster.tif',
+                imagery_path='./rgb.tif',
                 output_path='./output',
+                ms_imagery_path='./multispectral.tif',
             )
             print(result.tiles_path)
+            print(result.ms_tiles_path)  # set when ms_imagery_path is given
         """
         from canopyrs.engine.pipeline import run_component
         return run_component(
@@ -144,6 +169,7 @@ class TilerizerComponent(BaseComponent):
             output_path=output_path,
             imagery_path=imagery_path,
             infer_gdf=infer_gdf,
+            ms_imagery_path=ms_imagery_path,
         )
 
     @validate_requirements
@@ -188,6 +214,19 @@ class TilerizerComponent(BaseComponent):
         else:
             raise ValueError(f"Invalid tile_type: {self.config.tile_type}")
 
+        # Create resampled MS tiles when a multispectral orthomosaic is provided
+        ms_tiles_path = None
+        if data_state.ms_imagery_path:
+            ms_tiles_path = self._create_ms_tiles(
+                rgb_tiles_path=tiles_path,
+                ms_imagery_path=data_state.ms_imagery_path,
+                output_path=self.output_path,
+            )
+            print(
+                f"TilerizerComponent: Created {len(list(ms_tiles_path.glob('*.tif')))} "
+                f"resampled MS tiles in '{ms_tiles_path}'."
+            )
+
         # Save config
         if self.output_path:
             self.config.to_yaml(self.output_path / "tilerizer_config.yaml")
@@ -197,18 +236,141 @@ class TilerizerComponent(BaseComponent):
         if infer_coco_path is not None:
             output_files['coco'] = infer_coco_path
 
+        state_updates = {
+            StateKey.TILES_PATH: tiles_path,
+            StateKey.INFER_COCO_PATH: infer_coco_path,
+        }
+        if ms_tiles_path is not None:
+            state_updates[StateKey.MS_TILES_PATH] = str(ms_tiles_path)
+
         return ComponentResult(
             gdf=None,  # Tilerizer doesn't modify the GDF
             produced_columns=columns_to_pass,
             objects_are_new=False,
-            state_updates={
-                StateKey.TILES_PATH: tiles_path,
-                StateKey.INFER_COCO_PATH: infer_coco_path,
-            },
+            state_updates=state_updates,
             save_gpkg=False,
             save_coco=False,  # COCO handled internally by tilerizer
             output_files=output_files,
         )
+
+    # ------------------------------------------------------------------
+    # MS tile creation (Path A – Early Resampling)
+    # ------------------------------------------------------------------
+
+    def _create_ms_tiles(
+        self,
+        rgb_tiles_path: Path,
+        ms_imagery_path: str,
+        output_path: Path,
+    ) -> Path:
+        """
+        Create resampled multispectral tiles that match RGB tiles 1-to-1.
+
+        For every RGB tile in ``rgb_tiles_path`` the method:
+        1. Opens the tile and reads its geographic bounding box and pixel
+           dimensions.
+        2. Opens the MS orthomosaic and extracts the same geographic region
+           using bilinear resampling scaled to the RGB tile's pixel dimensions.
+        3. Saves the resampled MS tile to ``output_path/ms_tiles/`` using the
+           **same filename** as the RGB tile so they can be matched trivially.
+
+        Args:
+            rgb_tiles_path: Directory (or Path) containing the RGB tile files.
+            ms_imagery_path: Path to the co-registered MS orthomosaic.
+            output_path: Component output directory.  The ``ms_tiles/``
+                         sub-directory is created inside it.
+
+        Returns:
+            Path to the ``ms_tiles/`` directory.
+        """
+        rgb_tiles_path = Path(rgb_tiles_path)
+        ms_tiles_path = output_path / "ms_tiles"
+        ms_tiles_path.mkdir(parents=True, exist_ok=True)
+
+        rgb_tile_files = sorted(rgb_tiles_path.glob("*.tif"))
+        if not rgb_tile_files:
+            # Some tilerizers may use sub-folders (e.g. LabeledRasterTilerizer)
+            rgb_tile_files = sorted(rgb_tiles_path.rglob("*.tif"))
+
+        if not rgb_tile_files:
+            print(
+                f"TilerizerComponent: No RGB tiles found in '{rgb_tiles_path}'. "
+                f"Skipping MS tile creation."
+            )
+            return ms_tiles_path
+
+        with rasterio.open(ms_imagery_path) as src_ms:
+            ms_crs = src_ms.crs
+            ms_transform = src_ms.transform
+            ms_count = src_ms.count
+            ms_dtype = src_ms.dtypes[0]
+            ms_nodata = src_ms.nodata
+
+            for rgb_tile_file in rgb_tile_files:
+                try:
+                    with rasterio.open(rgb_tile_file) as src_rgb:
+                        bounds = src_rgb.bounds
+                        rgb_height = src_rgb.height
+                        rgb_width = src_rgb.width
+                        rgb_transform = src_rgb.transform
+                        rgb_crs = src_rgb.crs
+
+                    # Build the window into the MS raster corresponding to the
+                    # same geographic bounding box as the RGB tile.
+                    window_ms = from_bounds(
+                        bounds.left,
+                        bounds.bottom,
+                        bounds.right,
+                        bounds.top,
+                        transform=ms_transform,
+                    )
+
+                    # Read the MS data and resample it on-the-fly to match the
+                    # RGB tile's pixel dimensions.  Using boundless=True ensures
+                    # that border tiles (partially outside the MS extent) are
+                    # filled with zeros instead of raising an error.
+                    ms_data = src_ms.read(
+                        window=window_ms,
+                        out_shape=(ms_count, rgb_height, rgb_width),
+                        resampling=Resampling.bilinear,
+                        boundless=True,
+                        fill_value=0,
+                    )
+
+                    # The output metadata mirrors the RGB tile (same CRS,
+                    # transform, dimensions) but with the MS band count/dtype.
+                    ms_meta = {
+                        "driver": "GTiff",
+                        "dtype": ms_dtype,
+                        "width": rgb_width,
+                        "height": rgb_height,
+                        "count": ms_count,
+                        "crs": rgb_crs if rgb_crs else ms_crs,
+                        "transform": rgb_transform,
+                    }
+                    if ms_nodata is not None:
+                        ms_meta["nodata"] = ms_nodata
+
+                    # Preserve the relative sub-path so nested tile structures
+                    # (e.g. from LabeledRasterTilerizer) are mirrored.
+                    relative_path = rgb_tile_file.relative_to(rgb_tiles_path)
+                    ms_tile_path = ms_tiles_path / relative_path
+                    ms_tile_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    with rasterio.open(ms_tile_path, "w", **ms_meta) as dst:
+                        dst.write(ms_data)
+
+                except Exception as exc:
+                    print(
+                        f"TilerizerComponent: Warning – could not create MS tile "
+                        f"for '{rgb_tile_file.name}': {exc}"
+                    )
+
+        return ms_tiles_path
+
+    # ------------------------------------------------------------------
+    # Standard tiling helpers (unchanged from upstream CanopyRS)
+    # ------------------------------------------------------------------
 
     def _process_labeled_tiles(self, data_state: DataState, columns_to_pass: Set[str]):
         """Process labeled regular grid tiles (tile_type='tile_labeled')."""

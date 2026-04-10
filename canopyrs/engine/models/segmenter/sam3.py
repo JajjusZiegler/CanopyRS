@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 import numpy as np
 import torch
 from PIL import Image
@@ -11,6 +11,7 @@ from canopyrs.engine.config_parsers import SegmenterConfig
 from canopyrs.engine.models.segmenter.segmenter_base import SegmenterWrapperBase
 from canopyrs.engine.models.registry import SEGMENTER_REGISTRY
 from canopyrs.engine.models.utils import collate_fn_infer_image_box
+from canopyrs.engine.multispectral import calculate_vi, vi_to_sam_input, select_best_masks
 
 
 @SEGMENTER_REGISTRY.register('sam3')
@@ -20,6 +21,13 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
 
     - Uses Sam3TrackerModel / Sam3TrackerProcessor (Promptable Visual Segmentation).
     - Takes GT / detector boxes as prompts and returns ONE mask per box (no PCS / concept detection).
+
+    Multispectral support (Path A – Early Resampling):
+        When ``forward()`` receives a non-None ``ms_images`` list and
+        ``self.config.ms_index_type`` is set, it runs an additional inference
+        pass on each tile using a vegetation-index-derived 3-channel grayscale
+        image.  The mask with the higher predicted IoU score is selected for
+        each detected crown and passed to the post-processing queue.
     """
 
     # For now, everything maps to the single HF checkpoint.
@@ -138,16 +146,25 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
         boxes_object_ids: List[int],
         tiles_idx: List[int],
         queue: multiprocessing.JoinableQueue,
+        ms_images: Optional[List[Optional[np.ndarray]]] = None,
     ):
         """
         images: list of CxHxW np arrays (C at least 3)
         boxes:  list of (Ni, 4) xyxy boxes per image
         boxes_object_ids: list of object-id lists aligned with boxes
         tiles_idx: list of tile indices
+        ms_images: optional list of CxHxW float32 MS tile arrays (one per image,
+                   or None entries).  When provided and config.ms_index_type is
+                   set, dual-stream inference is performed and the best mask per
+                   box is selected by predicted IoU score.
         """
+        ms_index_type = getattr(self.config, 'ms_index_type', None)
+        use_ms = ms_images is not None and ms_index_type is not None
 
-        for image, image_boxes, image_boxes_object_ids, tile_idx in zip(
-            images, boxes, boxes_object_ids, tiles_idx
+        ms_iter = ms_images if use_ms else [None] * len(images)
+
+        for image, image_boxes, image_boxes_object_ids, tile_idx, ms_image in zip(
+            images, boxes, boxes_object_ids, tiles_idx, ms_iter
         ):
             # C,H,W -> H,W,C, RGB only
             image = image[:3, :, :]
@@ -179,6 +196,13 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
             # sanity
             if len(image_boxes) == 0:
                 continue
+
+            # Prepare MS SAM input if applicable
+            ms_pil_image = None
+            if use_ms and ms_image is not None:
+                ms_pil_image = self._prepare_ms_pil_image(
+                    ms_image, target_H=H, target_W=W
+                )
 
             with torch.inference_mode(), torch.autocast(
                 "cuda",
@@ -218,7 +242,15 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
 
                     if masks is None or len(masks) == 0:
                         continue
-                    
+
+                    # MS inference (optional)
+                    if ms_pil_image is not None:
+                        ms_masks, ms_scores = self._predict_batch(ms_pil_image, box_batch)
+                        if ms_masks is not None and len(ms_masks) == len(masks):
+                            masks, scores = select_best_masks(
+                                masks, scores, ms_masks, ms_scores
+                            )
+
                     # If we resized, scale masks back to original resolution
                     if orig_H != self.target_tile_size or orig_W != self.target_tile_size:
                         import cv2
@@ -295,5 +327,55 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
 
         return masks, scores
 
-    def infer_on_dataset(self, dataset: DetectionLabeledRasterCocoDataset):
-        return self._infer_on_dataset(dataset, collate_fn_infer_image_box)
+    def _prepare_ms_pil_image(
+        self,
+        ms_data: np.ndarray,
+        target_H: int,
+        target_W: int,
+    ) -> Image.Image:
+        """
+        Convert a multi-band MS tile to a 3-channel grayscale PIL Image for SAM.
+
+        The method computes the configured vegetation index, converts it to
+        8-bit, and stacks three identical copies so that SAM's processor can
+        accept it as a standard RGB image.
+
+        Args:
+            ms_data: CxHxW float32 array (all bands of the MS tile).
+            target_H: Target height (should match the RGB tile after resizing).
+            target_W: Target width.
+
+        Returns:
+            PIL.Image of size (target_W, target_H) in RGB mode.
+        """
+        import cv2
+
+        vi = calculate_vi(
+            ms_data,
+            index_type=self.config.ms_index_type,
+            nir_band_idx=getattr(self.config, 'ms_nir_band_idx', 4),
+            red_band_idx=getattr(self.config, 'ms_red_band_idx', 2),
+            green_band_idx=getattr(self.config, 'ms_green_band_idx', 1),
+            blue_band_idx=getattr(self.config, 'ms_blue_band_idx', 0),
+            red_edge_band_idx=getattr(self.config, 'ms_red_edge_band_idx', None),
+        )
+
+        # Convert VI to 3-channel uint8 SAM input (H, W, 3)
+        ms_sam = vi_to_sam_input(vi)
+
+        # Resize to match the (possibly upscaled) RGB tile dimensions
+        if ms_sam.shape[0] != target_H or ms_sam.shape[1] != target_W:
+            ms_sam = cv2.resize(ms_sam, (target_W, target_H), interpolation=cv2.INTER_LINEAR)
+
+        return Image.fromarray(ms_sam).convert("RGB")
+
+    def infer_on_dataset(
+        self,
+        dataset: DetectionLabeledRasterCocoDataset,
+        ms_tiles_path: Optional[str] = None,
+    ):
+        return self._infer_on_dataset(
+            dataset,
+            collate_fn_infer_image_box,
+            ms_tiles_path=ms_tiles_path,
+        )

@@ -114,3 +114,25 @@ class SegmenterConfig(BaseConfig):
     detector_cache_dir: str = "./output/detector_cache"
     eval_pipeline_config_path: Optional[str] = None
     coco_eval_output_dir: Optional[str] = None
+
+    # ---------------------------------------------------------------------------
+    # Multispectral (MS) / Vegetation Index configuration – Path A
+    # ---------------------------------------------------------------------------
+    # When ``InferIOConfig.multispectral_imagery`` is set, the tilerizer creates
+    # resampled MS tiles alongside the RGB tiles.  The fields below configure
+    # how those MS tiles are used by SAM segmenters.
+    #
+    # Set ``ms_index_type`` to one of: "ndvi", "nir", "pri", "ndre", "evi".
+    # The default ``None`` disables dual-stream MS inference even when MS tiles
+    # are present (e.g. for backward compatibility or when you only want the MS
+    # tiles saved but not used in segmentation yet).
+    ms_index_type: Optional[str] = None
+
+    # Zero-based band indices of each spectral channel in the MS tile.
+    # Defaults match the common MicaSense Altum layout:
+    #   band 0: Blue, 1: Green, 2: Red, 3: Red-Edge, 4: NIR
+    ms_blue_band_idx: int = 0
+    ms_green_band_idx: int = 1
+    ms_red_band_idx: int = 2
+    ms_red_edge_band_idx: Optional[int] = 3
+    ms_nir_band_idx: int = 4
