@@ -142,7 +142,9 @@ class Sam2PredictorWrapper(SegmenterWrapperBase):
                         if ms_masks.ndim == 4:
                             ms_masks = ms_masks[:, 0, :, :]
 
-                        # Flatten scores from (N, 1) if needed
+                        # Flatten scores from (N, 1) to (N,) if needed –
+                        # SAM2 predictor can return scores with an extra
+                        # dimension compared to SAM v1.
                         ms_scores_flat = ms_scores[:, 0] if ms_scores.ndim == 2 else ms_scores
                         rgb_scores_flat = rgb_scores[:, 0] if rgb_scores.ndim == 2 else rgb_scores
 
