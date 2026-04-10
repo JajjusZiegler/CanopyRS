@@ -159,6 +159,86 @@ class SegmenterWrapperBase(ABC):
         """
         pass
 
+    @staticmethod
+    def _jitter_boxes(boxes: np.ndarray, scale: float) -> np.ndarray:
+        """
+        Randomly perturb each box corner by ±scale × side_length.
+
+        Args:
+            boxes: (N, 4) float32 array of [x1, y1, x2, y2] boxes.
+            scale: Fraction of the box side-length used as the noise magnitude.
+
+        Returns:
+            Jittered copy of *boxes* (same shape, float32).
+        """
+        boxes = boxes.copy().astype(np.float32)
+        widths = boxes[:, 2] - boxes[:, 0]
+        heights = boxes[:, 3] - boxes[:, 1]
+
+        boxes[:, 0] += np.random.uniform(-scale, scale, len(boxes)) * widths
+        boxes[:, 1] += np.random.uniform(-scale, scale, len(boxes)) * heights
+        boxes[:, 2] += np.random.uniform(-scale, scale, len(boxes)) * widths
+        boxes[:, 3] += np.random.uniform(-scale, scale, len(boxes)) * heights
+        return boxes
+
+    def _ensemble_predict(
+        self,
+        predict_fn,
+        image,
+        boxes: np.ndarray,
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Run *predict_fn* ``ensemble_n_runs`` times (optionally with box jitter)
+        and aggregate the results.
+
+        Args:
+            predict_fn: Callable ``(image, boxes) -> (masks, scores)`` where
+                *masks* is ``(N, H, W)`` uint8 and *scores* is ``(N,)`` float32.
+            image: Image argument forwarded to *predict_fn* unchanged on every
+                run.  For SAM2 the image embedding is pre-computed by the caller
+                via ``set_image()``; *image* is accepted for API uniformity but
+                may be ignored inside *predict_fn*.
+            boxes: ``(N, 4)`` float32 array of [x1, y1, x2, y2] box prompts.
+
+        Returns:
+            ``(masks, scores)`` — same dtype/shape contract as *predict_fn*,
+            or ``(None, None)`` if every run returned no masks.
+        """
+        n_runs = getattr(self.config, 'ensemble_n_runs', 1)
+        jitter_scale = getattr(self.config, 'ensemble_box_jitter_scale', 0.0)
+        method = getattr(self.config, 'ensemble_method', 'heatmap')
+
+        # Fast path: single run with no jitter — zero overhead vs old code.
+        if n_runs <= 1 and jitter_scale == 0.0:
+            return predict_fn(image, boxes)
+
+        all_masks = []   # list of (N, H, W) float32
+        all_scores = []  # list of (N,) float32
+
+        for _ in range(max(n_runs, 1)):
+            run_boxes = self._jitter_boxes(boxes, jitter_scale) if jitter_scale > 0.0 else boxes
+            masks, scores = predict_fn(image, run_boxes)
+            if masks is None or len(masks) == 0:
+                continue
+            all_masks.append(masks.astype(np.float32))
+            all_scores.append(scores.astype(np.float32))
+
+        if not all_masks:
+            return None, None
+
+        if method == 'best_iou':
+            # Keep the single run whose masks have the highest mean IoU score.
+            mean_scores = [float(s.mean()) for s in all_scores]
+            best = int(np.argmax(mean_scores))
+            return all_masks[best].astype(np.uint8), all_scores[best]
+
+        # heatmap (default): average probability map → threshold at 0.5
+        stacked = np.stack(all_masks, axis=0)          # (n_runs, N, H, W)
+        prob_map = stacked.mean(axis=0)                 # (N, H, W)
+        final_masks = (prob_map >= 0.5).astype(np.uint8)
+        final_scores = np.stack(all_scores, axis=0).mean(axis=0)  # (N,)
+        return final_masks, final_scores
+
     def queue_masks(self,
                     box_object_ids: List[int or None],
                     masks: np.array,

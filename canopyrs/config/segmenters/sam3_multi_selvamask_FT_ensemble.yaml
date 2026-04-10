@@ -1,0 +1,29 @@
+# Model inference
+model: sam3
+architecture: l
+checkpoint_path: https://huggingface.co/CanopyRS/sam3-multi-selvabox-selvamask-FT/resolve/main/sam3_selvamask_ft_model_best.pt
+image_batch_size: 1
+box_batch_size: 30
+pp_down_scale_masks_px: 512
+pp_n_workers: 16
+pp_remove_rings: true
+pp_remove_small_geoms: 50
+pp_simplify_tolerance: 0.0
+
+# ---------------------------------------------------------------------------
+# Ensemble / multi-run inference
+# ---------------------------------------------------------------------------
+# SAM is run ensemble_n_runs times per box batch.  On each run the box corners
+# are randomly perturbed by ±ensemble_box_jitter_scale × side_length so that
+# small box inaccuracies do not dominate the result.  The per-pixel binary
+# masks are averaged into a probability heatmap and thresholded at 0.5 to
+# produce the final mask (ensemble_method: heatmap).
+#
+# Trade-off guide:
+#   n_runs=3, jitter=0.03  →  3× compute, smoother boundaries
+#   n_runs=5, jitter=0.05  →  5× compute, best boundary quality
+#   method: best_iou       →  keeps the single run with highest mean IoU
+#                             (faster aggregation, less smoothing)
+ensemble_n_runs: 5
+ensemble_box_jitter_scale: 0.05
+ensemble_method: heatmap
