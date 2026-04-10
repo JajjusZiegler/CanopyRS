@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
-from typing import Tuple, List
+from pathlib import Path
+from typing import Tuple, List, Optional
 import multiprocessing
 import warnings
 import cv2
 import numpy as np
 import psutil
+import rasterio
 import torch
 from torch.utils.data import DataLoader
 
@@ -112,16 +114,49 @@ class SegmenterWrapperBase(ABC):
             "Classes built from SegmenterWrapperBase must have REQUIRES_BOX_PROMPT set to True or False"
 
     @abstractmethod
-    def forward(self,
-                images: List[np.array],
-                boxes: List[np.array],
-                boxes_object_ids: List[int or None],
-                tiles_idx: List[int],
-                queue: multiprocessing.JoinableQueue):
+    def forward(
+        self,
+        images: List[np.array],
+        boxes: List[np.array],
+        boxes_object_ids: List[int or None],
+        tiles_idx: List[int],
+        queue: multiprocessing.JoinableQueue,
+        ms_images: Optional[List[Optional[np.ndarray]]] = None,
+    ):
+        """
+        Run inference on a batch of image tiles.
+
+        Args:
+            images: List of CxHxW numpy arrays (primary RGB tiles).
+            boxes: List of (N, 4) xyxy box arrays per tile.
+            boxes_object_ids: List of object-ID lists aligned with boxes.
+            tiles_idx: List of tile indices (for result assembly).
+            queue: JoinableQueue for posting mask results to post-process workers.
+            ms_images: Optional list of CxHxW numpy arrays (multispectral tiles,
+                       one per image, or ``None`` entries for tiles without an MS
+                       counterpart).  When provided and ``self.config.ms_index_type``
+                       is set, the wrapper computes a vegetation index, converts it
+                       to a 3-channel grayscale SAM input, runs a second inference
+                       pass, and selects the best mask per box based on IoU score.
+        """
         pass
 
     @abstractmethod
-    def infer_on_dataset(self, dataset: BaseDataset):
+    def infer_on_dataset(
+        self,
+        dataset: BaseDataset,
+        ms_tiles_path: Optional[str] = None,
+    ):
+        """
+        Run inference over an entire dataset.
+
+        Args:
+            dataset: Dataset of tiles (labeled or unlabeled).
+            ms_tiles_path: Optional path to the directory containing resampled
+                           multispectral tiles.  When provided, the corresponding
+                           MS tile for each RGB tile is loaded and passed to
+                           ``forward()`` as ``ms_images``.
+        """
         pass
 
     def queue_masks(self,
@@ -166,7 +201,43 @@ class SegmenterWrapperBase(ABC):
 
         return n_masks_processed
 
-    def _infer_on_dataset(self, dataset: BaseDataset, collate_fn: object):
+    def _load_ms_tile(self, tile_path: str, ms_tiles_path: str) -> Optional[np.ndarray]:
+        """
+        Load the multispectral tile that corresponds to the given RGB tile.
+
+        The MS tile is expected to share the same *filename* as the RGB tile
+        but reside in ``ms_tiles_path`` (or a matching sub-directory inside it).
+
+        Args:
+            tile_path: Absolute path to the RGB tile file.
+            ms_tiles_path: Root directory of the MS tiles tree.
+
+        Returns:
+            CxHxW float32 numpy array, or ``None`` if no matching tile exists.
+        """
+        tile_name = Path(tile_path).name
+        ms_tile_path = Path(ms_tiles_path) / tile_name
+
+        if not ms_tile_path.exists():
+            # Try recursive search for nested directory structures
+            matches = list(Path(ms_tiles_path).rglob(tile_name))
+            if not matches:
+                return None
+            ms_tile_path = matches[0]
+
+        try:
+            with rasterio.open(ms_tile_path) as src:
+                return src.read().astype(np.float32)
+        except Exception as exc:
+            print(f"Warning: could not load MS tile '{ms_tile_path}': {exc}")
+            return None
+
+    def _infer_on_dataset(
+        self,
+        dataset: BaseDataset,
+        collate_fn: object,
+        ms_tiles_path: Optional[str] = None,
+    ):
         infer_dl = DataLoader(dataset, batch_size=self.config.image_batch_size, shuffle=False,
                               collate_fn=collate_fn,
                               num_workers=3, persistent_workers=True)
@@ -208,21 +279,32 @@ class SegmenterWrapperBase(ABC):
             tiles_idx = list(range(i * self.config.image_batch_size, (i + 1) * self.config.image_batch_size))[:len(sample)]
             if isinstance(dataset, DetectionLabeledRasterCocoDataset):
                 images, boxes, boxes_object_ids = sample
-                tiles_paths.extend([dataset.tiles[tile_idx]['path'] for tile_idx in tiles_idx])     # TODO tiles idx should be returned by the dataset __getitem__ method
+                current_tile_paths = [dataset.tiles[tile_idx]['path'] for tile_idx in tiles_idx]
+                tiles_paths.extend(current_tile_paths)
             elif isinstance(dataset, UnlabeledRasterDataset):
                 images = list(sample)
                 boxes = [None] * len(images)
                 boxes_object_ids = [None] * len(images)
-                tiles_paths.extend([dataset.tile_paths[tile_idx] for tile_idx in tiles_idx])        # TODO tiles idx should be returned by the dataset __getitem__ method
+                current_tile_paths = [dataset.tile_paths[tile_idx] for tile_idx in tiles_idx]
+                tiles_paths.extend(current_tile_paths)
             else:
                 raise ValueError("Dataset type not supported.")
+
+            # Load corresponding MS tiles when ms_tiles_path is provided
+            ms_images = None
+            if ms_tiles_path is not None:
+                ms_images = [
+                    self._load_ms_tile(tp, ms_tiles_path)
+                    for tp in current_tile_paths
+                ]
 
             self.forward(
                 images=images,
                 boxes=boxes,
                 boxes_object_ids=boxes_object_ids,
                 tiles_idx=tiles_idx,
-                queue=queue
+                queue=queue,
+                ms_images=ms_images,
             )
 
         print("Waiting for all postprocessing workers to be finished...")

@@ -34,6 +34,14 @@ class SegmenterComponent(BaseComponent):
     Produces:
         - infer_gdf: GeoDataFrame with segmented polygons
         - Columns: segmenter_score (+ preserves detector columns if present)
+
+    Multispectral support (Path A – Early Resampling):
+        When ``data_state.ms_tiles_path`` is set (populated by TilerizerComponent
+        when ``InferIOConfig.multispectral_imagery`` was provided) and
+        ``config.ms_index_type`` is not ``None``, the component passes the MS
+        tiles path to the SAM wrapper so that it can perform dual-stream
+        inference (RGB + MS-derived VI image) and select the best mask per
+        detected crown based on the predicted IoU score.
     """
 
     name = 'segmenter'
@@ -92,6 +100,7 @@ class SegmenterComponent(BaseComponent):
         tiles_path: str,
         output_path: str,
         infer_coco_path: str = None,
+        ms_tiles_path: str = None,
     ) -> 'DataState':
         """
         Run segmenter standalone on pre-tiled imagery.
@@ -102,15 +111,20 @@ class SegmenterComponent(BaseComponent):
             output_path: Where to save outputs
             infer_coco_path: Path to COCO file with detection boxes
                              (required if the model needs box prompts, like SAM)
+            ms_tiles_path: Optional path to the directory containing resampled
+                           multispectral tiles (created by TilerizerComponent).
+                           When provided and ``config.ms_index_type`` is set,
+                           enables dual-stream MS inference.
 
         Returns:
             DataState with segmentation results (access .infer_gdf for the GeoDataFrame)
 
         Example:
             result = SegmenterComponent.run_standalone(
-                config=SegmenterConfig(model='sam2', ...),
+                config=SegmenterConfig(model='sam2', ms_index_type='ndvi', ...),
                 tiles_path='./tiles',
                 output_path='./output',
+                ms_tiles_path='./tiles/ms_tiles',
             )
             print(result.infer_gdf)
         """
@@ -120,6 +134,7 @@ class SegmenterComponent(BaseComponent):
             output_path=output_path,
             tiles_path=tiles_path,
             infer_coco_path=infer_coco_path,
+            ms_tiles_path=ms_tiles_path,
         )
 
     @validate_requirements
@@ -152,9 +167,19 @@ class SegmenterComponent(BaseComponent):
                 transform=None
             )
 
-        # Run inference
+        # Resolve MS tiles path:
+        # Use the value from data_state if available; only activate dual-stream
+        # inference when ms_index_type is also configured.
+        ms_tiles_path = None
+        if (
+            data_state.ms_tiles_path
+            and getattr(self.config, 'ms_index_type', None) is not None
+        ):
+            ms_tiles_path = data_state.ms_tiles_path
+
+        # Run inference (with optional MS tiles for dual-stream segmentation)
         tiles_paths, tiles_masks_objects_ids, tiles_masks_polygons, tiles_masks_scores = \
-            segmenter.infer_on_dataset(dataset)
+            segmenter.infer_on_dataset(dataset, ms_tiles_path=ms_tiles_path)
 
         # Flatten outputs into GDF
         rows = []

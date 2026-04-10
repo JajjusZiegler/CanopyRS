@@ -20,6 +20,18 @@ class DataState:
     infer_gdf_columns_to_pass: set = field(default_factory=set)
     infer_gdf_columns_to_delete_on_save: List = field(default_factory=list)
 
+    # Multispectral support (Path A – Early Resampling)
+    # ms_imagery_path: set from InferIOConfig.multispectral_imagery when the
+    #   pipeline is initialised.  The tilerizer reads this to resample the MS
+    #   orthomosaic to match each RGB tile's geographic extent and pixel
+    #   dimensions.
+    ms_imagery_path: Optional[str] = None
+    # ms_tiles_path: populated by the tilerizer after it creates the resampled
+    #   MS tiles.  Downstream SAM segmenters check this field; when it is set
+    #   they perform dual-stream inference (RGB + MS-derived VI image) and
+    #   select the best mask per detected crown.
+    ms_tiles_path: Optional[str] = None
+
     background_executor: Optional = None
     side_processes: List = field(default_factory=list)
 

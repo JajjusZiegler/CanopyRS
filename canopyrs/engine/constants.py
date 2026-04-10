@@ -40,3 +40,7 @@ class StateKey:
     INFER_GDF = "infer_gdf"
     INFER_COCO_PATH = "infer_coco_path"
     PRODUCT_NAME = "product_name"
+
+    # Multispectral support (Path A – Early Resampling)
+    MS_IMAGERY_PATH = "ms_imagery_path"
+    MS_TILES_PATH = "ms_tiles_path"
