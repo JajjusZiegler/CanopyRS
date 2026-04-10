@@ -176,7 +176,7 @@ class TestSelectBestMasks:
         # Index 2: RGB wins (0.9 > 0.7)  → all zeros
         np.testing.assert_array_equal(sel_m[2], rgb_masks[2])
 
-        np.testing.assert_array_equal(sel_s, [0.8, 0.9, 0.9])
+        np.testing.assert_allclose(sel_s, [0.8, 0.9, 0.9], rtol=1e-6)
 
     def test_shape_mismatch_raises(self):
         rgb_m = np.zeros((3, 8, 8), dtype=np.uint8)
