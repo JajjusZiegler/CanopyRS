@@ -124,34 +124,39 @@ class Sam2PredictorWrapper(SegmenterWrapperBase):
                     box_batch = image_boxes[i:i + self.config.box_batch_size]
                     box_object_ids_batch = image_boxes_object_ids[i:i + self.config.box_batch_size]
 
-                    # RGB inference
-                    rgb_masks, rgb_scores, _ = self.predictor.predict(
-                        box=box_batch, multimask_output=False, normalize_coords=True
-                    )
+                    # Define predict_fn for the ensemble; the image embedding
+                    # is already set via set_image() above, so the image
+                    # argument is ignored inside the closure.
+                    def _predict_fn_rgb(image, boxes):
+                        m, s, _ = self.predictor.predict(
+                            box=boxes, multimask_output=False, normalize_coords=True
+                        )
+                        if m.ndim == 4:
+                            m = m[:, 0, :, :]
+                        s_flat = s[:, 0] if s.ndim == 2 else s
+                        return m, s_flat
 
-                    # reshaping to (batch_size, h, w)
-                    if rgb_masks.ndim == 4:
-                        rgb_masks = rgb_masks[:, 0, :, :]
+                    rgb_masks, rgb_scores = self._ensemble_predict(_predict_fn_rgb, pil_image, box_batch)
 
                     # MS inference (optional)
                     if ms_pil_image is not None:
                         self.predictor.set_image(ms_pil_image)
-                        ms_masks, ms_scores, _ = self.predictor.predict(
-                            box=box_batch, multimask_output=False, normalize_coords=True
-                        )
-                        if ms_masks.ndim == 4:
-                            ms_masks = ms_masks[:, 0, :, :]
 
-                        # Flatten scores from (N, 1) to (N,) if needed –
-                        # SAM2 predictor can return scores with an extra
-                        # dimension compared to SAM v1.
-                        ms_scores_flat = ms_scores[:, 0] if ms_scores.ndim == 2 else ms_scores
-                        rgb_scores_flat = rgb_scores[:, 0] if rgb_scores.ndim == 2 else rgb_scores
+                        def _predict_fn_ms(image, boxes):
+                            m, s, _ = self.predictor.predict(
+                                box=boxes, multimask_output=False, normalize_coords=True
+                            )
+                            if m.ndim == 4:
+                                m = m[:, 0, :, :]
+                            s_flat = s[:, 0] if s.ndim == 2 else s
+                            return m, s_flat
 
-                        rgb_masks, rgb_scores_flat = select_best_masks(
-                            rgb_masks, rgb_scores_flat, ms_masks, ms_scores_flat
-                        )
-                        rgb_scores = rgb_scores_flat
+                        ms_masks, ms_scores = self._ensemble_predict(_predict_fn_ms, ms_pil_image, box_batch)
+
+                        if ms_masks is not None and len(ms_masks) == len(rgb_masks):
+                            rgb_masks, rgb_scores = select_best_masks(
+                                rgb_masks, rgb_scores, ms_masks, ms_scores
+                            )
 
                         # Restore the predictor to the RGB image for the next batch
                         self.predictor.set_image(pil_image)

@@ -238,14 +238,14 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
                         oid for oid, v in zip(box_object_ids_batch, valid) if v
                     ]
 
-                    masks, scores = self._predict_batch(pil_image, box_batch)
+                    masks, scores = self._ensemble_predict(self._predict_batch, pil_image, box_batch)
 
                     if masks is None or len(masks) == 0:
                         continue
 
                     # MS inference (optional)
                     if ms_pil_image is not None:
-                        ms_masks, ms_scores = self._predict_batch(ms_pil_image, box_batch)
+                        ms_masks, ms_scores = self._ensemble_predict(self._predict_batch, ms_pil_image, box_batch)
                         if ms_masks is not None and len(ms_masks) == len(masks):
                             masks, scores = select_best_masks(
                                 masks, scores, ms_masks, ms_scores

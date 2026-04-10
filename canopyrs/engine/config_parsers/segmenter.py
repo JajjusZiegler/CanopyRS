@@ -116,6 +116,26 @@ class SegmenterConfig(BaseConfig):
     coco_eval_output_dir: Optional[str] = None
 
     # ---------------------------------------------------------------------------
+    # Ensemble / multi-run inference
+    # ---------------------------------------------------------------------------
+    # Run SAM inference ``ensemble_n_runs`` times per box batch (optionally with
+    # small box jitter) and aggregate the per-pixel results into a probability
+    # heatmap before producing the final binary mask.
+    #
+    # ensemble_n_runs=1 (default) keeps exactly the current single-pass behaviour
+    # with no additional compute cost.
+    #
+    # ensemble_method:
+    #   "heatmap"  – average the binary masks across runs, threshold at 0.5.
+    #                Produces smoother, more stable crown boundaries.
+    #   "best_iou" – keep the single run with the highest mean IoU score.
+    #                Equivalent to the existing dual-stream selection logic,
+    #                generalised to N runs.
+    ensemble_n_runs: int = 1
+    ensemble_box_jitter_scale: float = 0.0
+    ensemble_method: str = "heatmap"
+
+    # ---------------------------------------------------------------------------
     # Multispectral (MS) / Vegetation Index configuration – Path A
     # ---------------------------------------------------------------------------
     # When ``InferIOConfig.multispectral_imagery`` is set, the tilerizer creates
