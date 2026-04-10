@@ -196,3 +196,160 @@ class TestSelectBestMasks:
         sel_m, sel_s = select_best_masks(rgb_masks, rgb_scores, ms_masks, ms_scores)
         np.testing.assert_array_equal(sel_m, rgb_masks)
         np.testing.assert_array_equal(sel_s, rgb_scores)
+
+
+# ---------------------------------------------------------------------------
+# ms_camera_profiles
+# ---------------------------------------------------------------------------
+
+from canopyrs.engine.ms_camera_profiles import (
+    get_profile,
+    apply_profile_to_config_data,
+    list_cameras,
+    list_supported_vis,
+    MS_CAMERA_PROFILES,
+)
+
+
+class TestMsCameraProfiles:
+    # -- get_profile ----------------------------------------------------------
+
+    def test_get_profile_canonical_name(self):
+        p = get_profile("micasense_altum")
+        assert p["n_bands"] == 5
+        assert p["ms_nir_band_idx"] == 4
+
+    def test_get_profile_short_alias(self):
+        p = get_profile("altum")
+        assert p["n_bands"] == 5
+
+    def test_get_profile_mx_dual_alias(self):
+        p = get_profile("mx_dual")
+        assert p["n_bands"] == 10
+        assert p["ms_nir_band_idx"] == 4  # Camera-1 NIR
+
+    def test_get_profile_case_insensitive(self):
+        p = get_profile("MX_Dual")
+        assert p["n_bands"] == 10
+
+    def test_get_profile_unknown_raises(self):
+        with pytest.raises(ValueError, match="Unknown ms_camera"):
+            get_profile("my_imaginary_camera")
+
+    # -- mx_dual band layout --------------------------------------------------
+
+    def test_mx_dual_has_10_bands(self):
+        p = get_profile("mx_dual")
+        assert p["n_bands"] == 10
+
+    def test_mx_dual_cam2_wavelengths_present(self):
+        p = get_profile("mx_dual")
+        assert "coastal_blue_cam2" in p["wavelengths_nm"]
+        assert "nir_cam2" in p["wavelengths_nm"]
+
+    def test_mx_dual_default_indices_use_cam1(self):
+        """Default primary indices must be in 0–4 (Camera-1 range)."""
+        p = get_profile("mx_dual")
+        assert p["ms_blue_band_idx"] <= 4
+        assert p["ms_nir_band_idx"] <= 4
+
+    # -- apply_profile_to_config_data -----------------------------------------
+
+    def test_apply_profile_injects_missing_fields(self):
+        data = {"ms_camera": "altum", "ms_index_type": "ndvi"}
+        apply_profile_to_config_data(data, "altum")
+        assert data["ms_nir_band_idx"] == 4
+        assert data["ms_blue_band_idx"] == 0
+
+    def test_apply_profile_respects_explicit_override(self):
+        """Explicit ms_nir_band_idx must NOT be overwritten by profile."""
+        data = {"ms_camera": "mx_dual", "ms_nir_band_idx": 9}
+        apply_profile_to_config_data(data, "mx_dual")
+        assert data["ms_nir_band_idx"] == 9  # override preserved
+        assert data["ms_blue_band_idx"] == 0   # profile-injected
+
+    def test_apply_profile_mx_dual_with_cam2_override(self):
+        data = {"ms_red_edge_band_idx": 8, "ms_nir_band_idx": 9}
+        apply_profile_to_config_data(data, "mx_dual")
+        # Overrides preserved
+        assert data["ms_red_edge_band_idx"] == 8
+        assert data["ms_nir_band_idx"] == 9
+        # Profile-injected
+        assert data["ms_red_band_idx"] == 2
+
+    # -- list helpers ---------------------------------------------------------
+
+    def test_list_cameras_returns_canonical_names(self):
+        cameras = list_cameras()
+        assert "micasense_altum" in cameras
+        assert "micasense_rededge_mx_dual" in cameras
+
+    def test_list_supported_vis(self):
+        vis = list_supported_vis("mx_dual")
+        assert "ndvi" in vis
+        assert "ndre" in vis
+
+    # -- SegmenterConfig integration -----------------------------------------
+
+    def test_segmenter_config_ms_camera_auto_populates_bands(self):
+        """ms_camera='mx_dual' must set band indices from the MX Dual profile."""
+        from canopyrs.engine.config_parsers.segmenter import SegmenterConfig
+        cfg = SegmenterConfig(ms_camera="mx_dual", ms_index_type="ndvi")
+        assert cfg.ms_camera == "mx_dual"
+        assert cfg.ms_nir_band_idx == 4   # Camera-1 NIR from profile
+        assert cfg.ms_blue_band_idx == 0
+
+    def test_segmenter_config_explicit_override_wins(self):
+        """Explicit band index must take precedence over camera profile."""
+        from canopyrs.engine.config_parsers.segmenter import SegmenterConfig
+        cfg = SegmenterConfig(ms_camera="mx_dual", ms_nir_band_idx=9)
+        assert cfg.ms_nir_band_idx == 9   # user override
+        assert cfg.ms_blue_band_idx == 0   # from profile
+
+    def test_segmenter_config_no_camera_uses_defaults(self):
+        """Without ms_camera the original Altum defaults must be preserved."""
+        from canopyrs.engine.config_parsers.segmenter import SegmenterConfig
+        cfg = SegmenterConfig()
+        assert cfg.ms_nir_band_idx == 4
+        assert cfg.ms_red_band_idx == 2
+        assert cfg.ms_camera is None
+
+    def test_segmenter_config_altum_same_as_defaults(self):
+        """Setting ms_camera='altum' must give the same indices as the defaults."""
+        from canopyrs.engine.config_parsers.segmenter import SegmenterConfig
+        default_cfg = SegmenterConfig()
+        altum_cfg = SegmenterConfig(ms_camera="altum")
+        for field in [
+            "ms_blue_band_idx",
+            "ms_green_band_idx",
+            "ms_red_band_idx",
+            "ms_red_edge_band_idx",
+            "ms_nir_band_idx",
+        ]:
+            assert getattr(altum_cfg, field) == getattr(default_cfg, field), (
+                f"Field {field} mismatch: altum={getattr(altum_cfg, field)}, "
+                f"default={getattr(default_cfg, field)}"
+            )
+
+    def test_calculate_vi_with_mx_dual_10band(self):
+        """calculate_vi must work correctly using band indices from MX Dual profile."""
+        p = get_profile("mx_dual")
+        ms = np.random.default_rng(7).random((10, 64, 64), dtype=np.float32)
+        vi = calculate_vi(
+            ms,
+            index_type="ndvi",
+            nir_band_idx=p["ms_nir_band_idx"],
+            red_band_idx=p["ms_red_band_idx"],
+        )
+        assert vi.shape == (64, 64)
+        assert vi.dtype == np.float32
+        assert vi.min() >= -1.0 - 1e-5
+        assert vi.max() <= 1.0 + 1e-5
+
+    def test_calculate_vi_mx_dual_cam2_nir(self):
+        """calculate_vi with Camera-2 NIR override (band 9) must succeed."""
+        ms = np.random.default_rng(8).random((10, 32, 32), dtype=np.float32)
+        vi = calculate_vi(ms, index_type="ndvi", nir_band_idx=9, red_band_idx=7)
+        assert vi.shape == (32, 32)
+        assert not np.any(np.isnan(vi))
+

@@ -1,6 +1,6 @@
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 from canopyrs.engine.config_parsers.base import BaseConfig
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 class SegmenterConfig(BaseConfig):
     # General model definition and inference params
@@ -128,6 +128,18 @@ class SegmenterConfig(BaseConfig):
     # tiles saved but not used in segmentation yet).
     ms_index_type: Optional[str] = None
 
+    # Camera profile preset.  When set, band indices below are auto-populated
+    # from the named profile (see ``canopyrs.engine.ms_camera_profiles``).
+    # Explicitly provided band index fields always override the profile.
+    #
+    # Supported values (short aliases):
+    #   "altum"           – MicaSense Altum         (5-band)
+    #   "rededge_mx"      – MicaSense RedEdge-MX    (5-band)
+    #   "mx_dual"         – MicaSense RedEdge-MX Dual (10-band)
+    #   "altum_pt"        – MicaSense Altum-PT      (6-band)
+    #   "p4_multispectral"– DJI P4 Multispectral    (5-band)
+    ms_camera: Optional[str] = None
+
     # Zero-based band indices of each spectral channel in the MS tile.
     # Defaults match the common MicaSense Altum layout:
     #   band 0: Blue, 1: Green, 2: Red, 3: Red-Edge, 4: NIR
@@ -136,3 +148,19 @@ class SegmenterConfig(BaseConfig):
     ms_red_band_idx: int = 2
     ms_red_edge_band_idx: Optional[int] = 3
     ms_nir_band_idx: int = 4
+
+    @model_validator(mode='before')
+    @classmethod
+    def resolve_ms_camera_profile(cls, data: Any) -> Any:
+        """
+        When ``ms_camera`` is provided, inject band indices from the named
+        camera profile into any band-index fields that the user has NOT
+        explicitly specified.  Explicit overrides are preserved.
+        """
+        if not isinstance(data, dict):
+            return data
+        camera = data.get('ms_camera')
+        if camera:
+            from canopyrs.engine.ms_camera_profiles import apply_profile_to_config_data
+            data = apply_profile_to_config_data(data, camera)
+        return data
