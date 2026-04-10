@@ -238,9 +238,10 @@ def get_profile(camera_name: str) -> Dict[str, Any]:
     """
     key = camera_name.lower().strip()
     if key not in MS_CAMERA_PROFILES:
-        known = sorted(
-            k for k in MS_CAMERA_PROFILES if not k.startswith("micasense_") and k != "dji_p4_multispectral"
-        )
+        known = sorted(list_cameras() + [
+            "altum", "rededge_mx", "mx_dual", "rededge_mx_dual",
+            "altum_pt", "p4_multispectral",
+        ])
         raise ValueError(
             f"Unknown ms_camera '{camera_name}'.  "
             f"Supported cameras: {known}."
