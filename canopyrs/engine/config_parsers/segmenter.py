@@ -12,6 +12,10 @@ class SegmenterConfig(BaseConfig):
     box_batch_size: Optional[int] = 250
     max_prompts_per_image: Optional[int] = 64
 
+    # Multispectral support (detectree2 only)
+    imgmode: str = 'rgb'    # 'rgb' for 3-channel, 'ms' for multispectral
+    num_bands: int = 3      # number of input channels; >3 enables MS pixel normalisation
+
     # might be used for maskrcnn
     box_predictions_per_image: Optional[int] = 500
     anchor_sizes: Optional[list] = [[32], [64], [128], [256], [512]]

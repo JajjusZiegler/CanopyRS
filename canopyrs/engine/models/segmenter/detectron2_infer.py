@@ -36,7 +36,12 @@ class Detectron2SegmenterWrapper(SegmenterWrapperBase):
             self.aug = AugmentationList(AugmentationAdder().get_augmentation_detectron2_test(cfg))
             self.input_format = cfg.INPUT.FORMAT
         elif self.config.model == 'detectree2':
-            cfg = setup_detectree2_cfg(base_model=self.config.architecture, update_model=self.config.checkpoint_path)
+            cfg = setup_detectree2_cfg(
+                base_model=self.config.architecture,
+                update_model=self.config.checkpoint_path,
+                imgmode=self.config.imgmode,
+                num_bands=self.config.num_bands,
+            )
             self.model = build_model(cfg)
             self.model.eval()
             checkpointer = Detectron2DetectionCheckpointer(self.model)

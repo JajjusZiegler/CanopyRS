@@ -1,0 +1,42 @@
+# Detectree2 RGB – Standalone (prompt-free) pipeline for 100 cm orthomosaics
+#
+# Designed for 100 cm/px RGB orthomosaics (e.g. produced by DJI P1 / Zenmuse
+# after Metashape processing and smoothing).
+#
+# ─── What this pipeline does ──────────────────────────────────────────────
+#   tilerizer  →  Detectree2 (RGB mode)  →  aggregator (ioa-disambiguate)
+#
+#   1. Tilerizer slices the orthomosaic into 1 000-px tiles at native 1 m/px.
+#   2. Detectree2 (imgmode='rgb', 3 bands) runs on each tile and returns
+#      instance masks directly without any external box prompt.
+#   3. Aggregator merges cross-tile duplicates using ioa-disambiguate NMS.
+#
+# ─── Prerequisites ────────────────────────────────────────────────────────
+#   • The `detectree2_flexi.yaml` segmenter config references a public
+#     pre-trained checkpoint and can be used out-of-the-box.
+#
+# ─── Usage ────────────────────────────────────────────────────────────────
+#   python infer.py \
+#       -c preset_seg_standalone_detectree2_rgb \
+#       -i /path/to/20250908_Martelloskop_rgb_model_ortho_smooth_100.tif \
+#       -o /path/to/output/20250908/canopyRS_rgb \
+#       -aoi /path/to/AOI_Marteloskop.gpkg
+# ──────────────────────────────────────────────────────────────────────────
+
+components_configs:
+  - tilerizer:
+      tile_type: tile
+      tile_size: 1000
+      tile_overlap: 0.5
+      ground_resolution: 1.0      # native 100 cm/px — no resampling
+      output_dtype: 'uint8'
+      ignore_black_white_alpha_tiles_threshold: 0.75
+
+  - segmenter: segmenters/detectree2_flexi.yaml
+
+  - aggregator:
+      nms_algorithm: 'ioa-disambiguate'
+      score_threshold: 0.3
+      nms_threshold: 0.05
+      edge_band_buffer_percentage: 0.05
+      scores_weights: { 'segmenter_score': 1.0 }
