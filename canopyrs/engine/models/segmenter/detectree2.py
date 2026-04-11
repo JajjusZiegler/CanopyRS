@@ -68,8 +68,6 @@ def setup_detectree2_cfg(
     max_iter=1000,
     eval_period=100,
     resize="fixed",    # "fixed" or "random" or "rand_fixed"
-    imgmode="rgb",
-    num_bands=3,
     class_mapping_file=None,
 ):
     """Set up config object # noqa: D417.
@@ -94,8 +92,6 @@ def setup_detectree2_cfg(
         eval_period: number of iterations between evaluations
         out_dir: directory to save outputs
         resize: resize strategy for images
-        imgmode: image mode (rgb or multispectral)
-        num_bands: number of bands in the image
         class_mapping_file: path to class mapping file
     """
 
@@ -139,16 +135,4 @@ def setup_detectree2_cfg(
     cfg.TEST.EVAL_PERIOD = eval_period
     cfg.RESIZE = resize
     cfg.INPUT.MIN_SIZE_TRAIN = 1000
-    cfg.IMGMODE = imgmode    # "rgb" or "ms" (multispectral)
-    if num_bands > 3:
-        # Adjust PIXEL_MEAN and PIXEL_STD for the number of bands
-        default_pixel_mean = cfg.MODEL.PIXEL_MEAN
-        default_pixel_std = cfg.MODEL.PIXEL_STD
-        # Extend or truncate the PIXEL_MEAN and PIXEL_STD based on num_bands
-        cfg.MODEL.PIXEL_MEAN = (
-            default_pixel_mean * (num_bands // len(default_pixel_mean)) +
-            default_pixel_mean[:num_bands % len(default_pixel_mean)])
-        cfg.MODEL.PIXEL_STD = (
-            default_pixel_std * (num_bands // len(default_pixel_std)) +
-            default_pixel_std[:num_bands % len(default_pixel_std)])
     return cfg

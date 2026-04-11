@@ -86,6 +86,10 @@ class Detectron2SegmenterWrapper(SegmenterWrapperBase):
                 orig_h, orig_w = image.shape[:2]
                 orig_dims.append((orig_h, orig_w))
 
+                # Detectree2 only supports RGB input: use first 3 channels
+                if self.config.model == 'detectree2':
+                    image = image[:, :, :3]
+
                 # Convert channels if needed
                 if self.input_format == "RGB":
                     image = image[:, :, ::-1]
