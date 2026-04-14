@@ -4,7 +4,11 @@ import torch
 from PIL import Image
 from geodataset.dataset import DetectionLabeledRasterCocoDataset
 import multiprocessing
-from transformers import Sam3TrackerProcessor, Sam3TrackerModel
+from transformers import (
+    Sam3TrackerVideoModel,
+    Sam3TrackerVideoProcessor,
+    Sam3TrackerVideoInferenceSession,
+)
 from pathlib import Path
 
 from canopyrs.engine.config_parsers import SegmenterConfig
@@ -17,10 +21,13 @@ from canopyrs.engine.multispectral import calculate_vi, vi_to_sam_input, select_
 @SEGMENTER_REGISTRY.register('sam3')
 class Sam3PredictorWrapper(SegmenterWrapperBase):
     """
-    SAM3 Tracker (PVS) wrapper.
+    SAM3 Tracker (Video) wrapper.
 
-    - Uses Sam3TrackerModel / Sam3TrackerProcessor (Promptable Visual Segmentation).
-    - Takes GT / detector boxes as prompts and returns ONE mask per box (no PCS / concept detection).
+    facebook/sam3 is a sam3_video checkpoint that uses Sam3TrackerVideoModel
+    and a session-based inference API. Each image is treated as a single-frame
+    "video". Box prompts are provided per-object via the processor's
+    process_new_points_or_boxes_for_video_frame helper, and the model forward
+    pass returns one mask per object.
 
     Multispectral support (Path A – Early Resampling):
         When ``forward()`` receives a non-None ``ms_images`` list and
@@ -30,7 +37,6 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
         each detected crown and passed to the post-processing queue.
     """
 
-    # For now, everything maps to the single HF checkpoint.
     MODEL_MAPPING = {
         't': "facebook/sam3",
         's': "facebook/sam3",
@@ -44,21 +50,17 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
         super().__init__(config)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
         self.model_name = self.MODEL_MAPPING[self.config.architecture]
 
-        print(f"Loading SAM3 Tracker model {self.model_name}")
-        self.processor = Sam3TrackerProcessor.from_pretrained(self.model_name)
-        self.model = Sam3TrackerModel.from_pretrained(self.model_name).to(self.device)
+        print(f"Loading SAM3 model {self.model_name}")
+        self.processor = Sam3TrackerVideoProcessor.from_pretrained(self.model_name)
+        self.model = Sam3TrackerVideoModel.from_pretrained(self.model_name).to(self.device)
         self.model.eval()
-        print(f"SAM3 Tracker model {self.model_name} loaded")
+        print(f"SAM3 model {self.model_name} loaded")
 
-        # thresholds (optional, from config)
-        # score_threshold is not really used in tracker mode but kept for API symmetry
         self.score_threshold = getattr(self.config, "sam3_score_threshold", 0.0)
-        # For tracker, HF examples use default mask_threshold=0.0
         self.mask_threshold = getattr(self.config, "sam3_mask_threshold", 0.0)
-                # Target tile size for fair comparison with Detectree2 (default 1777 to match typical Detectree2 input)
+        # Resize tiles to this resolution before inference (matches original code intent)
         self.target_tile_size = getattr(self.config, "target_tile_size", 1777)
         print(f"SAM3 will resize tiles to {self.target_tile_size}x{self.target_tile_size} for processing")
 
@@ -66,11 +68,15 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
         if checkpoint_path:
             self._load_checkpoint(checkpoint_path)
 
+    # ------------------------------------------------------------------ #
+    #  Checkpoint helpers (unchanged from original)                       #
+    # ------------------------------------------------------------------ #
+
     def _load_checkpoint(self, checkpoint_path):
         checkpoint_path_str = str(checkpoint_path)
 
-        # Check if it's a HuggingFace URL
-        if checkpoint_path_str.startswith("https://huggingface.co/") or checkpoint_path_str.startswith("http://huggingface.co/"):
+        if checkpoint_path_str.startswith("https://huggingface.co/") or \
+                checkpoint_path_str.startswith("http://huggingface.co/"):
             local_path = self._download_from_huggingface(checkpoint_path_str)
             if local_path is None:
                 print(f"\n⚠️  WARNING: Failed to download checkpoint from: {checkpoint_path_str}")
@@ -88,7 +94,6 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
         print(f"  Path: {local_path}")
 
         state_dict = torch.load(local_path, map_location='cpu')
-
         if 'model_state_dict' in state_dict:
             model_state_dict = state_dict['model_state_dict']
             print("  Checkpoint type: Full training checkpoint")
@@ -102,47 +107,36 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
         print("✓ Fine-tuned weights loaded successfully!")
         print(f"{'='*60}\n")
 
-    def _download_from_huggingface(self, url: str) -> Path | None:
-        """Download a checkpoint file from a HuggingFace URL."""
+    def _download_from_huggingface(self, url: str) -> "Path | None":
         from huggingface_hub import hf_hub_download
         import re
 
-        # Parse HuggingFace URL: https://huggingface.co/{repo_id}/resolve/{revision}/{filename}
         pattern = r"https?://huggingface\.co/([^/]+/[^/]+)/resolve/([^/]+)/(.+)"
         match = re.match(pattern, url)
-
         if not match:
             print(f"  Could not parse HuggingFace URL: {url}")
             return None
 
-        repo_id = match.group(1)
-        revision = match.group(2)
-        filename = match.group(3)
-
+        repo_id, revision, filename = match.group(1), match.group(2), match.group(3)
         print(f"\n{'='*60}")
         print(f"Downloading checkpoint from HuggingFace:")
-        print(f"  Repo: {repo_id}")
-        print(f"  Revision: {revision}")
-        print(f"  File: {filename}")
-
+        print(f"  Repo: {repo_id}  Revision: {revision}  File: {filename}")
         try:
-            local_path = hf_hub_download(
-                repo_id=repo_id,
-                filename=filename,
-                revision=revision,
-            )
+            local_path = hf_hub_download(repo_id=repo_id, filename=filename, revision=revision)
             print(f"  Downloaded to: {local_path}")
             return Path(local_path)
         except Exception as e:
             print(f"  Download failed: {e}")
             return None
 
-    # ------------------------ main API ------------------------ #
+    # ------------------------------------------------------------------ #
+    #  Main inference loop                                                #
+    # ------------------------------------------------------------------ #
 
     def forward(
         self,
-        images: List[np.array],
-        boxes: List[np.array],
+        images: List[np.ndarray],
+        boxes: List[np.ndarray],
         boxes_object_ids: List[int],
         tiles_idx: List[int],
         queue: multiprocessing.JoinableQueue,
@@ -166,34 +160,30 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
         for image, image_boxes, image_boxes_object_ids, tile_idx, ms_image in zip(
             images, boxes, boxes_object_ids, tiles_idx, ms_iter
         ):
-            # C,H,W -> H,W,C, RGB only
-            image = image[:3, :, :]
-            image = image.transpose((1, 2, 0))
-
+            # C,H,W → H,W,C, RGB only
+            image = image[:3, :, :].transpose((1, 2, 0))
             if image.max() <= 1.0:
                 image = (image * 255).astype(np.uint8)
             else:
                 image = image.astype(np.uint8)
 
             orig_H, orig_W, _ = image.shape
-            
-            # Resize to target tile size for fair comparison with Detectree2
+
+            # Optionally resize to target_tile_size
             if orig_H != self.target_tile_size or orig_W != self.target_tile_size:
                 import cv2
-                image = cv2.resize(image, (self.target_tile_size, self.target_tile_size), interpolation=cv2.INTER_LINEAR)
-                
-                # Scale boxes to match resized image (convert to float to avoid casting errors)
+                image = cv2.resize(
+                    image, (self.target_tile_size, self.target_tile_size),
+                    interpolation=cv2.INTER_LINEAR
+                )
                 scale_x = self.target_tile_size / orig_W
                 scale_y = self.target_tile_size / orig_H
                 image_boxes = image_boxes.astype(np.float32)
                 image_boxes[:, [0, 2]] *= scale_x
                 image_boxes[:, [1, 3]] *= scale_y
-            
-            H, W, _ = image.shape
-            # For output masks, we want them at ORIGINAL resolution
-            output_size = (orig_H, orig_W)
 
-            # sanity
+            H, W, _ = image.shape
+
             if len(image_boxes) == 0:
                 continue
 
@@ -205,29 +195,24 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
                 )
 
             with torch.inference_mode(), torch.autocast(
-                "cuda",
-                dtype=torch.bfloat16,
-                enabled=(self.device.type == "cuda"),
+                "cuda", dtype=torch.bfloat16, enabled=(self.device.type == "cuda")
             ):
                 pil_image = Image.fromarray(image).convert("RGB")
-
                 n_masks_processed = 0
+
                 for i in range(0, len(image_boxes), self.config.box_batch_size):
                     box_batch = np.asarray(
-                        image_boxes[i : i + self.config.box_batch_size],
-                        dtype=np.float32,
+                        image_boxes[i: i + self.config.box_batch_size], dtype=np.float32
                     )
                     box_object_ids_batch = image_boxes_object_ids[
-                        i : i + self.config.box_batch_size
+                        i: i + self.config.box_batch_size
                     ]
 
-                    # Clip boxes to image bounds
+                    # Clip and filter degenerate boxes
                     box_batch[:, 0] = np.clip(box_batch[:, 0], 0, W)
                     box_batch[:, 1] = np.clip(box_batch[:, 1], 0, H)
                     box_batch[:, 2] = np.clip(box_batch[:, 2], 0, W)
                     box_batch[:, 3] = np.clip(box_batch[:, 3], 0, H)
-
-                    # Drop degenerate boxes
                     valid = (box_batch[:, 2] > box_batch[:, 0]) & (
                         box_batch[:, 3] > box_batch[:, 1]
                     )
@@ -251,15 +236,15 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
                                 masks, scores, ms_masks, ms_scores
                             )
 
-                    # If we resized, scale masks back to original resolution
+                    # Scale masks back to original resolution when tile was resized
                     if orig_H != self.target_tile_size or orig_W != self.target_tile_size:
                         import cv2
-                        masks_resized = []
-                        for mask in masks:
-                            mask_resized = cv2.resize(mask, (orig_W, orig_H), interpolation=cv2.INTER_NEAREST)
-                            masks_resized.append(mask_resized)
-                        masks = np.array(masks_resized)
+                        masks = np.array([
+                            cv2.resize(m, (orig_W, orig_H), interpolation=cv2.INTER_NEAREST)
+                            for m in masks
+                        ])
 
+                    output_size = (orig_H, orig_W)
                     n_masks_processed = self.queue_masks(
                         box_object_ids_batch,
                         masks,
@@ -270,60 +255,89 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
                         queue,
                     )
 
-    def _predict_batch(self, image: Image.Image, boxes: np.ndarray):
+    # ------------------------------------------------------------------ #
+    #  Single-batch prediction                                            #
+    # ------------------------------------------------------------------ #
+
+    def _predict_batch(
+        self, image: Image.Image, boxes: np.ndarray, image_size: tuple = None
+    ):
         """
-        Run SAM3 Tracker (PVS) on one image with a batch of box prompts.
+        Run SAM3TrackerVideo on a single image with Nq box prompts.
+
+        The image is treated as a 1-frame video. Each box defines one
+        tracked object. Returns one mask per box.
 
         Args:
-            image: PIL.Image
-            boxes: (Nq, 4) float32 [x1,y1,x2,y2]
+            image:      PIL.Image (H x W x 3)
+            boxes:      (Nq, 4) float32 [x1, y1, x2, y2]
+            image_size: (H, W) of the (possibly resized) image
 
         Returns:
-            masks: (Nq, H, W) uint8 (one mask per input box)
-            scores: (Nq,) float32 (IoU scores or dummy ones)
+            masks:  (Nq, H, W) uint8
+            scores: (Nq,)   float32
         """
         if len(boxes) == 0:
             return None, None
 
-        # Sam3Tracker expects list-of-list of boxes: [batch, num_objects, 4]
-        input_boxes = [boxes.tolist()]
-
-        inputs = self.processor(
-            images=image,
-            input_boxes=input_boxes,
-            return_tensors="pt",
-        ).to(self.device)
-
-        # We want a single best mask per object (no 3-masks-per-object multimask)
-        outputs = self.model(**inputs, multimask_output=False)
-
-        # Post-process to original resolution
-        # returns list over batch; we have 1 image → [0]
-        masks_t = self.processor.post_process_masks(
-            outputs.pred_masks.cpu(),
-            inputs["original_sizes"],
-            mask_threshold=self.mask_threshold,
-            binarize=True,
-        )[0]
-
-        # shapes can be:
-        # - (Nobj, H, W)
-        # - or (Nobj, 1, H, W)
-        if masks_t.ndim == 4 and masks_t.shape[1] == 1:
-            masks_t = masks_t[:, 0]  # (Nobj, H, W)
-
-        masks = masks_t.to(torch.uint8).numpy()  # (Nobj, H, W), 0/1
-
-        # IoU scores per object (if provided)
-        # Sam-like output: iou_scores: (batch_size, num_masks) or (batch_size, num_objects)
-        if hasattr(outputs, "iou_scores") and outputs.iou_scores is not None:
-            scores_t = outputs.iou_scores[0]
-            scores = scores_t.detach().float().cpu().numpy()
-            # If there's a mismatch for any reason, fall back to ones
-            if scores.shape[0] != masks.shape[0]:
-                scores = np.ones(masks.shape[0], dtype=np.float32)
+        if image_size is None:
+            W_pil, H_pil = image.size  # PIL uses (W, H)
+            H, W = H_pil, W_pil
         else:
-            scores = np.ones(masks.shape[0], dtype=np.float32)
+            H, W = image_size
+        n_boxes = len(boxes)
+        obj_ids = list(range(n_boxes))
+
+        # Encode the image into pixel_values (shape: 1 x C x H_enc x W_enc)
+        pixel_values = self.processor(
+            images=image, return_tensors="pt"
+        ).pixel_values.to(self.device)
+
+        # dtype must be a torch.dtype (not a string) for .to() inside add_new_frame
+        session_dtype = torch.bfloat16 if self.device.type == "cuda" else torch.float32
+
+        # Build a 1-frame inference session
+        session = Sam3TrackerVideoInferenceSession(
+            video=None,
+            video_height=H,
+            video_width=W,
+            inference_device=self.device,
+            inference_state_device=self.device,
+            video_storage_device=self.device,
+            dtype=session_dtype,
+        )
+
+        # Add the single frame
+        frame_idx = session.add_new_frame(pixel_values, frame_idx=0)
+
+        # Register box prompts: input_boxes = [[box0, box1, ...]] shape [1, Nq, 4]
+        input_boxes = [[box.tolist() for box in boxes]]  # [1, Nq, 4]
+        self.processor.process_new_points_or_boxes_for_video_frame(
+            inference_session=session,
+            frame_idx=frame_idx,
+            obj_ids=obj_ids,
+            input_boxes=input_boxes,
+            original_size=(H, W),
+        )
+
+        # Run model — forward returns masks already at (video_height, video_width)
+        output = self.model(session, frame_idx=frame_idx)
+
+        # pred_masks: (Nq, 1, H, W) logits at session resolution
+        pred_masks = output.pred_masks  # kept on device
+
+        # Binarise with threshold
+        masks_binary = (pred_masks.float() > self.mask_threshold)  # (Nq, 1, H, W)
+        if masks_binary.ndim == 4 and masks_binary.shape[1] == 1:
+            masks_binary = masks_binary[:, 0]  # (Nq, H, W)
+        masks = masks_binary.to(torch.uint8).cpu().numpy()
+
+        # Object scores: sigmoid of logits → [0, 1]
+        scores = torch.sigmoid(
+            output.object_score_logits.float()
+        ).detach().cpu().numpy()
+        if scores.shape[0] != n_boxes:
+            scores = np.ones(n_boxes, dtype=np.float32)
 
         return masks, scores
 
