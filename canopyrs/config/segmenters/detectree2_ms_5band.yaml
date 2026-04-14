@@ -1,0 +1,27 @@
+# Detectree2 – Multispectral 5-band segmenter configuration
+#
+# Model: Detectree2 (Ball et al., 2023) — Mask R-CNN trained with imgmode='ms'
+# Source: https://github.com/PatBall1/detectree2
+#
+# ─── Checkpoint ────────────────────────────────────────────────────────────
+# Point checkpoint_path at a Detectree2 model trained (or fine-tuned) on
+# multispectral data with 5 input bands.
+#
+# Example fine-tuned checkpoints can be produced with:
+#   python train.py  (configure for imgmode=ms, num_bands=5)
+#
+# Set the path below once your model is available:
+#   checkpoint_path: /path/to/detectree2_ms_5band_finetuned.pth
+# ───────────────────────────────────────────────────────────────────────────
+
+model: 'detectree2'
+architecture: 'COCO-InstanceSegmentation/mask_rcnn_R_101_FPN_3x.yaml'
+checkpoint_path: /path/to/detectree2_ms_5band.pth   # <-- change this
+
+# Multispectral configuration
+# imgmode='ms' and num_bands=5 enable proper multi-channel support in
+# Detectree2 (adjusts Backbone PIXEL_MEAN/PIXEL_STD for 5 bands).
+imgmode: 'ms'
+num_bands: 5     # Blue, Green, Red, Red-Edge, NIR  (typical MicaSense layout)
+
+batch_size: 4

@@ -1,0 +1,43 @@
+# Detectree2 Multispectral – Standalone (prompt-free) pipeline
+#
+# Designed for 100 cm/px 5-band multispectral orthomosaics produced by
+# MicaSense / Parrot Sequoia sensors after Metashape processing.
+#
+# ─── What this pipeline does ──────────────────────────────────────────────
+#   tilerizer  →  Detectree2 (MS mode)  →  aggregator (ioa-disambiguate)
+#
+#   1. Tilerizer slices the orthomosaic into 1 000-px tiles at native 1 m/px.
+#   2. Detectree2 (imgmode='ms', 5 bands) runs on each tile and returns
+#      instance masks without any external box prompt.
+#   3. Aggregator merges cross-tile duplicates using ioa-disambiguate NMS.
+#
+# ─── Prerequisites ────────────────────────────────────────────────────────
+#   • A Detectree2 checkpoint fine-tuned on multispectral data with 5 input
+#     channels.  Set `checkpoint_path` in
+#     canopyrs/config/segmenters/detectree2_ms_5band.yaml.
+#
+# ─── Usage ────────────────────────────────────────────────────────────────
+#   python infer.py \
+#       -c preset_seg_standalone_detectree2_ms \
+#       -i /path/to/20250908_Martelloskop_multispec_ortho_100cm.tif \
+#       -o /path/to/output/20250908/canopyRS_ms \
+#       -aoi /path/to/AOI_Marteloskop.gpkg
+# ──────────────────────────────────────────────────────────────────────────
+
+components_configs:
+  - tilerizer:
+      tile_type: tile
+      tile_size: 1000
+      tile_overlap: 0.5
+      ground_resolution: 1.0      # native 100 cm/px — no resampling
+      output_dtype: 'uint16'      # preserve full 16-bit MS bit depth
+      ignore_black_white_alpha_tiles_threshold: 0.75
+
+  - segmenter: segmenters/detectree2_ms_5band.yaml
+
+  - aggregator:
+      nms_algorithm: 'ioa-disambiguate'
+      score_threshold: 0.3
+      nms_threshold: 0.05
+      edge_band_buffer_percentage: 0.05
+      scores_weights: { 'segmenter_score': 1.0 }
