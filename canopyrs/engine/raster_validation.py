@@ -79,36 +79,41 @@ def validate_raster_rgb_bands(
                             UserWarning
                         )
 
-            # Check dtype for first 3 bands
-            for i in range(3):
-                band_idx = i + 1
-                dtype = src.dtypes[i]
+            # Check dtype and value range only in strict mode.
+            # Non-strict mode is used for multispectral rasters (float32
+            # reflectance / radiance), which the tilerizer normalises to
+            # uint8 RGB tiles internally before model inference.
+            if strict_color_interp:
+                # Check dtype for first 3 bands
+                for i in range(3):
+                    band_idx = i + 1
+                    dtype = src.dtypes[i]
 
-                if dtype != 'uint8':
-                    raise RasterValidationError(
-                        f"Band {band_idx} should have dtype 'uint8', but has '{dtype}'. "
-                        f"File: {raster_path}"
-                    )
+                    if dtype != 'uint8':
+                        raise RasterValidationError(
+                            f"Band {band_idx} should have dtype 'uint8', but has '{dtype}'. "
+                            f"File: {raster_path}"
+                        )
 
-            # Check value range by reading a sample window from first 3 bands
-            # Read a small window to check values (center 512x512 or full if smaller)
-            window_size = min(512, src.height, src.width)
-            row_off = (src.height - window_size) // 2
-            col_off = (src.width - window_size) // 2
-            window = rasterio.windows.Window(col_off, row_off, window_size, window_size)
+                # Check value range by reading a sample window from first 3 bands
+                # Read a small window to check values (center 512x512 or full if smaller)
+                window_size = min(512, src.height, src.width)
+                row_off = (src.height - window_size) // 2
+                col_off = (src.width - window_size) // 2
+                window = rasterio.windows.Window(col_off, row_off, window_size, window_size)
 
-            for i in range(3):
-                band_idx = i + 1
-                data = src.read(band_idx, window=window)
+                for i in range(3):
+                    band_idx = i + 1
+                    data = src.read(band_idx, window=window)
 
-                min_val = data.min()
-                max_val = data.max()
+                    min_val = data.min()
+                    max_val = data.max()
 
-                if min_val < 0 or max_val > 255:
-                    raise RasterValidationError(
-                        f"Band {band_idx} values should be in range [0, 255], "
-                        f"but found range [{min_val}, {max_val}]. File: {raster_path}"
-                    )
+                    if min_val < 0 or max_val > 255:
+                        raise RasterValidationError(
+                            f"Band {band_idx} values should be in range [0, 255], "
+                            f"but found range [{min_val}, {max_val}]. File: {raster_path}"
+                        )
 
     except rasterio.errors.RasterioError as e:
         raise RasterValidationError(f"Failed to open raster file: {raster_path}. Error: {e}")

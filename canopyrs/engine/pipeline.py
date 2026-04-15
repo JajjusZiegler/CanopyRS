@@ -111,6 +111,7 @@ class Pipeline:
         # Import component classes here to avoid circular imports
         from canopyrs.engine.components.aggregator import AggregatorComponent
         from canopyrs.engine.components.detector import DetectorComponent
+        from canopyrs.engine.components.rgb_enhancer import RgbEnhancerComponent
         from canopyrs.engine.components.segmenter import SegmenterComponent
         from canopyrs.engine.components.tilerizer import TilerizerComponent
         from canopyrs.engine.components.classifier import ClassifierComponent
@@ -139,6 +140,8 @@ class Pipeline:
                 component = SegmenterComponent(component_config, output_path, component_id)
             elif component_type == 'classifier':
                 component = ClassifierComponent(component_config, output_path, component_id)
+            elif component_type == 'rgb_enhancer':
+                component = RgbEnhancerComponent(component_config, output_path, component_id)
             else:
                 raise ValueError(f'Invalid component type: {component_type}')
             components.append(component)

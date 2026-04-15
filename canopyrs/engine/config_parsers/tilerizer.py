@@ -1,5 +1,5 @@
 from pydantic import Field
-from typing import Optional
+from typing import List, Optional
 
 from canopyrs.engine.config_parsers.base import BaseConfig
 
@@ -15,6 +15,13 @@ class TilerizerConfig(BaseConfig):
     ignore_black_white_alpha_tiles_threshold: float = 0.75
     coco_n_workers: int = 5
     output_dtype: str = 'uint8'  # expected by most models
+
+    # Optional 1-based band indices to select/reorder before tiling.
+    # Use this for multispectral rasters where the first 3 bands are not R,G,B.
+    # Example for MicaSense Altum-PT (Blue=1,Green=2,Red=3,RE=4,NIR=5,Thermal=6,Alpha=7):
+    #   rgb_band_indices: [3, 2, 1]  → writes Red, Green, Blue tiles
+    # When None, all bands are written as-is.
+    rgb_band_indices: Optional[List[int]] = None
 
     ignore_tiles_without_labels: bool = True    # impacts inference and evaluation!
     min_intersection_ratio: float = 0.4     # impacts evaluation

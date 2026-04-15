@@ -22,7 +22,7 @@ warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
 ENV_NAME="canopyrs_env"
-REPO_DIR="$HOME/projects/CanopyRS"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CUDA_TARGET="12.6"
 CUDA_INSTALL_PATH="/usr/local/cuda-12.6"
 
@@ -59,8 +59,12 @@ info "Activating conda env '${ENV_NAME}'..."
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$ENV_NAME"
 
+if ! command -v sudo >/dev/null 2>&1; then
+    error "sudo is required to install CUDA toolkit packages."
+fi
+
 # ── 5. Move to repo ───────────────────────────────────────────────────────────
-[ -d "$REPO_DIR" ] || error "Repo not found at $REPO_DIR. Run setup_canopyrs_wsl.sh first."
+[ -d "$REPO_DIR" ] || error "Repo not found at $REPO_DIR."
 cd "$REPO_DIR"
 
 # ── 6. Build detectron2 with CUDA 12.6 pinned ────────────────────────────────
@@ -68,6 +72,12 @@ info "Building detectron2 with CUDA 12.6 toolkit (5–15 min)..."
 
 # Override PATH so the 12.6 nvcc is found first, and set CUDA_HOME explicitly.
 # MAX_JOBS=4 prevents WSL from OOMing during parallel C++ compilation.
+CUDA_HOME="$CUDA_INSTALL_PATH" \
+PATH="$CUDA_INSTALL_PATH/bin:$PATH" \
+MAX_JOBS=4 \
+    python -m pip install ninja \
+    || error "Failed to install ninja in ${ENV_NAME}."
+
 CUDA_HOME="$CUDA_INSTALL_PATH" \
 PATH="$CUDA_INSTALL_PATH/bin:$PATH" \
 MAX_JOBS=4 \
@@ -87,8 +97,8 @@ success "detrex installed."
 # ── 8. Add CUDA 12.6 to conda env activation (persistent) ────────────────────
 # So future pip installs and scripts in this env always find the right nvcc.
 info "Pinning CUDA 12.6 paths into conda env activation scripts..."
-ACTIVATE_DIR="$HOME/anaconda3/envs/$ENV_NAME/etc/conda/activate.d"
-DEACTIVATE_DIR="$HOME/anaconda3/envs/$ENV_NAME/etc/conda/deactivate.d"
+ACTIVATE_DIR="$CONDA_PREFIX/etc/conda/activate.d"
+DEACTIVATE_DIR="$CONDA_PREFIX/etc/conda/deactivate.d"
 mkdir -p "$ACTIVATE_DIR" "$DEACTIVATE_DIR"
 
 cat > "$ACTIVATE_DIR/cuda126.sh" <<'EOF'

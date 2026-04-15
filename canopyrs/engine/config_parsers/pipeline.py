@@ -3,11 +3,12 @@ from typing import List
 
 import yaml
 
-from canopyrs.engine.config_parsers.tilerizer import TilerizerConfig
-from canopyrs.engine.config_parsers.detector import DetectorConfig
 from canopyrs.engine.config_parsers.aggregator import AggregatorConfig
-from canopyrs.engine.config_parsers.segmenter import SegmenterConfig
 from canopyrs.engine.config_parsers.classifier import ClassifierConfig
+from canopyrs.engine.config_parsers.detector import DetectorConfig
+from canopyrs.engine.config_parsers.rgb_enhancer import RgbEnhancerConfig
+from canopyrs.engine.config_parsers.segmenter import SegmenterConfig
+from canopyrs.engine.config_parsers.tilerizer import TilerizerConfig
 
 from canopyrs.engine.config_parsers.base import BaseConfig, get_config_path
 
@@ -35,6 +36,8 @@ class PipelineConfig(BaseConfig):
                 component_cls = SegmenterConfig
             elif component_type == 'classifier':
                 component_cls = ClassifierConfig
+            elif component_type == 'rgb_enhancer':
+                component_cls = RgbEnhancerConfig
             else:
                 raise ValueError(f'Invalid component {component_config}')
 

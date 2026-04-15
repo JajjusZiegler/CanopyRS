@@ -375,7 +375,7 @@ class TilerizerComponent(BaseComponent):
     def _process_labeled_tiles(self, data_state: DataState, columns_to_pass: Set[str]):
         """Process labeled regular grid tiles (tile_type='tile_labeled')."""
         tilerizer = LabeledRasterTilerizer(
-            raster_path=data_state.imagery_path,
+            raster_path=self._effective_imagery_path(data_state.imagery_path),
             labels_path=None,
             labels_gdf=data_state.infer_gdf,
             output_path=self.output_path,
@@ -393,10 +393,91 @@ class TilerizerComponent(BaseComponent):
         coco_paths = tilerizer.generate_coco_dataset()
         return tilerizer.tiles_path, coco_paths.get(INFER_AOI_NAME)
 
+    def _effective_imagery_path(self, imagery_path: str) -> str:
+        """
+        Return a preprocessed raster path when rgb_band_indices is set.
+
+        Creates a contrast-stretched uint8 3-band GeoTIFF by:
+         1. Selecting rgb_band_indices (1-based) from the source raster.
+         2. Applying a per-band 2–98th percentile stretch → 0–255 uint8.
+
+        This ensures the detector receives properly-exposed RGB tiles
+        regardless of whether the source uses float32 reflectance (0.0–1.0)
+        or raw DN (0–65535).
+        """
+        if not self.config.rgb_band_indices:
+            return imagery_path
+
+        import rasterio
+        import numpy as np
+        from rasterio.enums import Resampling
+
+        out_path = str(self.output_path / "_rgb_stretched.tif")
+
+        with rasterio.open(imagery_path) as src:
+            nodata = src.nodata
+            meta = src.meta.copy()
+            meta.update(
+                count=len(self.config.rgb_band_indices),
+                dtype="uint8",
+                nodata=0,
+            )
+
+            # Sample at reduced resolution to compute percentiles cheaply
+            sample_scale = min(1.0, 4096 / max(src.width, src.height))
+            sw = max(1, int(src.width * sample_scale))
+            sh = max(1, int(src.height * sample_scale))
+            sample = src.read(
+                indexes=self.config.rgb_band_indices,
+                out_shape=(len(self.config.rgb_band_indices), sh, sw),
+                resampling=Resampling.average,
+            ).astype(np.float32)
+
+            # Compute per-band 2–98th percentile stretch params
+            p_low = np.zeros(len(self.config.rgb_band_indices), dtype=np.float32)
+            p_high = np.zeros(len(self.config.rgb_band_indices), dtype=np.float32)
+            for i in range(len(self.config.rgb_band_indices)):
+                band = sample[i]
+                valid = band[np.isfinite(band)]
+                if nodata is not None:
+                    valid = valid[valid != nodata]
+                if len(valid) == 0:
+                    p_low[i], p_high[i] = 0.0, 1.0
+                else:
+                    p_low[i] = np.percentile(valid, 2)
+                    p_high[i] = np.percentile(valid, 98)
+
+            print(
+                f"TilerizerComponent: band reorder + stretch "
+                f"(bands {self.config.rgb_band_indices}, 2–98th pct) → {out_path}"
+            )
+
+            with rasterio.open(out_path, "w", **meta) as dst:
+                # Read and write in row-blocks to keep memory bounded
+                for ji, window in src.block_windows(1):
+                    data = src.read(
+                        indexes=self.config.rgb_band_indices,
+                        window=window,
+                    ).astype(np.float32)
+                    out = np.zeros_like(data, dtype=np.uint8)
+                    for i in range(data.shape[0]):
+                        lo, hi = p_low[i], p_high[i]
+                        band = data[i]
+                        if hi > lo:
+                            band = (band - lo) / (hi - lo) * 255.0
+                        else:
+                            band = band * 255.0
+                        out[i] = np.clip(band, 0, 255).astype(np.uint8)
+                        if nodata is not None:
+                            out[i][data[i] == nodata] = 0
+                    dst.write(out, window=window)
+
+        return out_path
+
     def _process_unlabeled_tiles(self, data_state: DataState):
         """Process unlabeled tiles (tile_type='tile' without infer_gdf)."""
         tilerizer = RasterTilerizer(
-            raster_path=data_state.imagery_path,
+            raster_path=self._effective_imagery_path(data_state.imagery_path),
             output_path=self.output_path,
             tile_size=self.config.tile_size,
             tile_overlap=self.config.tile_overlap,

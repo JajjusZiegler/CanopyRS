@@ -32,6 +32,12 @@ class DataState:
     #   select the best mask per detected crown.
     ms_tiles_path: Optional[str] = None
 
+    # enhanced_tiles_paths: populated by RgbEnhancerComponent.  Maps each
+    #   enhancement method name to the path of the directory containing its
+    #   processed tiles.  The DetectorComponent reads this field and runs
+    #   detection on each tile set, fusing the per-method results with WBF.
+    enhanced_tiles_paths: Optional[Dict[str, str]] = None
+
     background_executor: Optional = None
     side_processes: List = field(default_factory=list)
 

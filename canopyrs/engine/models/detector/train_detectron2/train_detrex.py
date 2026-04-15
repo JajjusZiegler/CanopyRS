@@ -415,7 +415,9 @@ def get_base_detrex_model_cfg(config):
         config.architecture = "dino/configs/dino-swin/dino_swin_large_384_5scale_36ep.py"
 
     # loading base config
-    cfg = LazyConfig.load(str(detrex_root / 'projects' / config.architecture))
+    # detrex.__path__ resolves to the inner Python package (detrex/detrex/),
+    # but project configs live at the repo root (detrex/projects/), so use .parent
+    cfg = LazyConfig.load(str(detrex_root.parent / 'projects' / config.architecture))
     cfg.train.init_checkpoint = config.checkpoint_path
 
     # dino

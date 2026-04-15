@@ -55,7 +55,7 @@ def pipeline_main(args):
         raise ValueError("Either provide an io config file or pass imagery/tiles path and output path as arguments.")
 
     pipeline = Pipeline.from_config(io_config, config)
-    pipeline()
+    pipeline.run(strict_rgb_validation=not args.no_strict_rgb)
 
 
 if __name__ == '__main__':
@@ -69,6 +69,8 @@ if __name__ == '__main__':
     parser.add_argument("-o", "--output_path", type=str, help="Path to the output folder.")
     parser.add_argument("-t", "--tiles_path", type=str, help="Path to the tiles folder to infer on.")
     parser.add_argument("-aoi", "--aoi_path", type=str, help="Path to the area of interest (AOI) geopackage.")
+    parser.add_argument("--no-strict-rgb", action="store_true", default=False,
+                        help="Disable strict RGB band validation (use for multispectral rasters).")
 
     args = parser.parse_args()
 
