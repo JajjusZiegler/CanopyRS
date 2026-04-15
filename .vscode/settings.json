@@ -2,27 +2,16 @@
     // Python env
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
-    "python.defaultInterpreterPath": "/home/adminlinux/anaconda3/envs/canopyrs_env/bin/python",
+    "python.defaultInterpreterPath": "python",
 
-    // WSL terminal — auto-activates canopyrs_env on every new terminal
-    "terminal.integrated.defaultProfile.linux": "canopyrs",
-    "terminal.integrated.profiles.linux": {
-        "canopyrs": {
-            "path": "/bin/bash",
-            "args": ["--login", "-i"],
-            "env": {
-                "CONDA_AUTO_ACTIVATE": "canopyrs_env"
-            }
-        }
-    },
+    // Linux terminal defaults
+    "terminal.integrated.defaultProfile.linux": "bash",
     "terminal.integrated.env.linux": {
-        "CANOPYRS_REPO": "/home/adminlinux/projects/CanopyRS",
-        "ORTHOMOSAIC_DIR": "/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects",
-        "CUDA_HOME": "/usr/local/cuda-12.6"
+        "CANOPYRS_REPO": "${workspaceFolder}"
     },
 
-    // Open terminal in the WSL repo root
-    "terminal.integrated.cwd": "/home/adminlinux/projects/CanopyRS",
+    // Open terminal in the current workspace root
+    "terminal.integrated.cwd": "${workspaceFolder}",
 
     // Files
     "files.associations": {

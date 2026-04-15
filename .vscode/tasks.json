@@ -2,6 +2,64 @@
     "version": "2.0.0",
     "tasks": [
 
+        // ── Initial setup ────────────────────────────────────────────────────
+        {
+            "label": "Setup: install CUDA 12.6 toolkit",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env mamba install -y -c conda-forge cuda-nvcc=12.6.*",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Setup: create canopyrs_env",
+            "type": "shell",
+            "command": "conda create -y -n canopyrs_env -c conda-forge python=3.10 mamba",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Setup: init submodules",
+            "type": "shell",
+            "command": "cd ${CANOPYRS_REPO} && git submodule update --init --recursive",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Setup: install GDAL",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env mamba install -y -c conda-forge gdal=3.6.2",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Setup: install core Python stack",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env bash -lc \"set -e; pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu126 && python -m pip install -e ${CANOPYRS_REPO}\"",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Setup: install detectron2 and detrex",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env bash -lc \"set -e; MAX_JOBS=4 python -m pip install --no-build-isolation -e ${CANOPYRS_REPO}/detrex/detectron2 -e ${CANOPYRS_REPO}/detrex\"",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Setup: rebuild detrex with CUDA 12.6",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python -m pip install ninja && conda run -n canopyrs_env bash -lc \"set -e; CUDA_HOME=/usr/local/cuda-12.6 PATH=/usr/local/cuda-12.6/bin:$PATH MAX_JOBS=4 python -m pip install --no-build-isolation -e ${CANOPYRS_REPO}/detrex/detectron2 && CUDA_HOME=/usr/local/cuda-12.6 PATH=/usr/local/cuda-12.6/bin:$PATH MAX_JOBS=4 python -m pip install --no-build-isolation -e ${CANOPYRS_REPO}/detrex\"",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+
         // ── Environment ───────────────────────────────────────────────────────
         {
             "label": "Check: verify installation",
@@ -12,7 +70,7 @@
             "problemMatcher": []
         },
         {
-            "label": "Check: verify M: drive mount",
+            "label": "Check: verify data mount",
             "type": "shell",
             "command": "bash ${CANOPYRS_REPO}/ensure_mount.sh",
             "group": "test",
@@ -47,10 +105,13 @@
         },
 
         // ── RGB 1cm temporal batch ─────────────────────────────────────────────
+        // NOTE: set $AOI_PATH to the .gpkg AOI file for your site before running.
+        //       Set ORTHOMOSAIC_DIR in terminal.integrated.env.linux (settings.json)
+        //       to the root folder containing your per-site orthomosaic subfolders.
         {
             "label": "Batch: RGB 1cm temporal — Marteloskop (all dates, with AOI)",
             "type": "shell",
-            "command": "conda run -n canopyrs_env bash ${CANOPYRS_REPO}/batch_infer_rgb_temporal.sh --aoi '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Marteloskop/AOI_Marteloskop.gpkg' '${ORTHOMOSAIC_DIR}/Marteloskop'",
+            "command": "conda run -n canopyrs_env bash ${CANOPYRS_REPO}/batch_infer_rgb_temporal.sh --aoi '${AOI_PATH}' '${ORTHOMOSAIC_DIR}/Marteloskop'",
             "group": "build",
             "presentation": { "reveal": "always", "panel": "new" },
             "problemMatcher": []
@@ -58,7 +119,7 @@
         {
             "label": "Batch: RGB 1cm temporal — Marteloskop (dry-run)",
             "type": "shell",
-            "command": "conda run -n canopyrs_env bash ${CANOPYRS_REPO}/batch_infer_rgb_temporal.sh --dry-run --aoi '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Marteloskop/AOI_Marteloskop.gpkg' '${ORTHOMOSAIC_DIR}/Marteloskop'",
+            "command": "conda run -n canopyrs_env bash ${CANOPYRS_REPO}/batch_infer_rgb_temporal.sh --dry-run --aoi '${AOI_PATH}' '${ORTHOMOSAIC_DIR}/Marteloskop'",
             "group": "test",
             "presentation": { "reveal": "always", "panel": "new" },
             "problemMatcher": []
@@ -107,7 +168,15 @@
             "presentation": { "reveal": "always", "panel": "shared" },
             "problemMatcher": []
         },
-
+        // ── SAM3 smoke test ───────────────────────────────────────────────────────
+        {
+            "label": "Infer: segment — SAM3 fast (sample raster)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/infer.py -c preset_seg_multi_NQOS_selvamask_SAM3_FT_fast -i ${CANOPYRS_REPO}/assets/20240130_zf2tower_m3m_rgb_test_crop.tif -o /tmp/canopyrs_sam3_test",
+            "group": "test",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
         // ── Custom input ──────────────────────────────────────────────────────
         {
             "label": "Infer: SAM3 quality — custom input (edit task to change path)",

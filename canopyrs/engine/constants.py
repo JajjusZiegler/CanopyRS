@@ -44,3 +44,7 @@ class StateKey:
     # Multispectral support (Path A – Early Resampling)
     MS_IMAGERY_PATH = "ms_imagery_path"
     MS_TILES_PATH = "ms_tiles_path"
+
+    # RGB enhancement ensemble (multi-method detection)
+    # Populated by RgbEnhancerComponent; consumed by DetectorComponent.
+    ENHANCED_TILES_PATHS = "enhanced_tiles_paths"

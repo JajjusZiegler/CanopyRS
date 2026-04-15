@@ -144,17 +144,27 @@ MS_CAMERA_PROFILES: Dict[str, Dict[str, Any]] = {
     },
 
     # ------------------------------------------------------------------
-    # MicaSense Altum-PT  (5 MS bands + panchromatic — 6 bands total)
-    # MS bands: Blue 475 | Green 560 | Red 668 | Red-Edge 717 | NIR 840
-    # Band 5: Panchromatic (grey, ~400-700 nm) — excluded from VI defaults
+    # MicaSense Altum-PT — pansharpened Metashape export (7 bands)
+    #
+    # Metashape writes the 5 pansharpened MS bands followed by the LWIR
+    # thermal band and an alpha/validity mask as the final band:
+    #   0: Blue      475 nm  (pansharpened)
+    #   1: Green     560 nm  (pansharpened)
+    #   2: Red       668 nm  (pansharpened)
+    #   3: Red-Edge  717 nm  (pansharpened)
+    #   4: NIR       842 nm  (pansharpened)
+    #   5: Thermal   ~11 µm  (LWIR, values in °C — excluded from VIs)
+    #   6: Alpha     0–1     (Metashape validity mask — ignored by VIs)
+    # VI band indices target only the 5 MS reflectance bands (0–4).
     # ------------------------------------------------------------------
     "micasense_altum_pt": {
         "description": (
-            "MicaSense Altum-PT (6-band): same 5 MS bands as the Altum plus a "
-            "panchromatic band (band 5, ~400–700 nm).  VI calculations use "
-            "bands 0–4 by default."
+            "MicaSense Altum-PT — pansharpened Metashape export (7-band): "
+            "Blue (0, 475 nm), Green (1, 560 nm), Red (2, 668 nm), "
+            "Red-Edge (3, 717 nm), NIR (4, 842 nm), Thermal (5, LWIR ~11 µm), "
+            "Alpha (6, Metashape validity mask).  VI calculations use only bands 0–4."
         ),
-        "n_bands": 6,
+        "n_bands": 7,
         "ms_blue_band_idx": 0,
         "ms_green_band_idx": 1,
         "ms_red_band_idx": 2,
@@ -166,8 +176,9 @@ MS_CAMERA_PROFILES: Dict[str, Dict[str, Any]] = {
             "green": 560,
             "red": 668,
             "red_edge": 717,
-            "nir": 840,
-            "panchromatic": 630,  # approximate centre of broadband response
+            "nir": 842,
+            "thermal_lwir": 11000,
+            "alpha": None,
         },
     },
 

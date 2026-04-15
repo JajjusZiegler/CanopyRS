@@ -1,0 +1,30 @@
+# SAM3 quality ensemble preset for MicaSense Altum-PT rasters
+# (Metashape 7-band export: Blue=1, Green=2, Red=3, RE=4, NIR=5, Thermal=6, Alpha=7)
+#
+# Identical to preset_seg_multi_NQOS_selvamask_SAM3_FT_quality_ensemble except
+# the tilerizer reorders bands to [Red, Green, Blue] before writing tiles so
+# the RGB-trained detector and SAM3 segmenter receive the expected band order.
+#
+# Use --no-strict-rgb with infer.py for this preset.
+components_configs:
+  - tilerizer:
+      tile_type: tile
+      tile_size: 1777
+      tile_overlap: 0.75
+      ground_resolution: 0.045
+      rgb_band_indices: [3, 2, 1]   # Red(3), Green(2), Blue(1) — Altum-PT Metashape order
+  - detector: detectors/dino_swinL_multi_NQOS_selvamask_FT.yaml
+  - aggregator:
+      nms_algorithm: 'iou'
+      score_threshold: 0.4
+      nms_threshold: 0.7
+      edge_band_buffer_percentage: 0.05
+      scores_weights: { 'detector_score': 1.0 }
+  - segmenter: segmenters/sam3_multi_selvamask_FT_ensemble.yaml
+  - aggregator:
+      nms_algorithm: 'ioa-disambiguate'
+      score_threshold: 0.6
+      nms_threshold: 0.05
+      edge_band_buffer_percentage: 0.05
+      scores_weights: {'detector_score': 0.5, 'segmenter_score': 0.5}
+      scores_weighting_method: 'weighted_geometric_mean'
