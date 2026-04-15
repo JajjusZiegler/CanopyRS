@@ -186,7 +186,7 @@ class SegmenterWrapperBase(ABC):
         predict_fn,
         image,
         boxes: np.ndarray,
-    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Run *predict_fn* ``ensemble_n_runs`` times (optionally with box jitter)
         and aggregate the results.
@@ -201,8 +201,12 @@ class SegmenterWrapperBase(ABC):
             boxes: ``(N, 4)`` float32 array of [x1, y1, x2, y2] box prompts.
 
         Returns:
-            ``(masks, scores)`` — same dtype/shape contract as *predict_fn*,
-            or ``(None, None)`` if every run returned no masks.
+            ``(masks, scores, prob_map)`` — *prob_map* is ``(N, H, W)`` float32
+            with per-pixel crown probabilities averaged across ensemble runs
+            (only set when ``ensemble_method == 'heatmap'`` and ``n_runs > 1``,
+            otherwise ``None``).  *masks* and *scores* match the dtype/shape
+            contract of *predict_fn*, or ``(None, None, None)`` if every run
+            returned no masks.
         """
         n_runs = getattr(self.config, 'ensemble_n_runs', 1)
         jitter_scale = getattr(self.config, 'ensemble_box_jitter_scale', 0.0)
@@ -210,7 +214,8 @@ class SegmenterWrapperBase(ABC):
 
         # Fast path: single run with no jitter — zero overhead vs old code.
         if n_runs <= 1 and jitter_scale == 0.0:
-            return predict_fn(image, boxes)
+            masks, scores = predict_fn(image, boxes)
+            return masks, scores, None
 
         all_masks = []   # list of (N, H, W) float32
         all_scores = []  # list of (N,) float32
@@ -224,20 +229,41 @@ class SegmenterWrapperBase(ABC):
             all_scores.append(scores.astype(np.float32))
 
         if not all_masks:
-            return None, None
+            return None, None, None
 
         if method == 'best_iou':
             # Keep the single run whose masks have the highest mean IoU score.
             mean_scores = [float(s.mean()) for s in all_scores]
             best = int(np.argmax(mean_scores))
-            return all_masks[best].astype(np.uint8), all_scores[best]
+            return all_masks[best].astype(np.uint8), all_scores[best], None
 
         # heatmap (default): average probability map → threshold at 0.5
         stacked = np.stack(all_masks, axis=0)          # (n_runs, N, H, W)
-        prob_map = stacked.mean(axis=0)                 # (N, H, W)
+        prob_map = stacked.mean(axis=0)                 # (N, H, W) float32
         final_masks = (prob_map >= 0.5).astype(np.uint8)
         final_scores = np.stack(all_scores, axis=0).mean(axis=0)  # (N,)
-        return final_masks, final_scores
+        return final_masks, final_scores, prob_map
+
+    @staticmethod
+    def _save_tile_heatmap(
+        heatmap: np.ndarray,
+        tile_path: str,
+        output_dir: 'Path',
+    ) -> None:
+        """Save a (H, W) float32 crown-probability heatmap as a georeferenced GeoTIFF.
+
+        The spatial reference (transform + CRS) is copied from *tile_path* so
+        the output raster overlays pixel-perfectly with the source tile.
+        Pixel values range 0–1: fraction of ensemble runs that labelled the
+        pixel as crown.
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+        out_path = output_dir / Path(tile_path).name
+        with rasterio.open(tile_path) as src:
+            meta = src.meta.copy()
+        meta.update(dtype='float32', count=1, nodata=None)
+        with rasterio.open(out_path, 'w', **meta) as dst:
+            dst.write(heatmap[np.newaxis, :, :])
 
     def queue_masks(self,
                     box_object_ids: List[int or None],
@@ -317,6 +343,7 @@ class SegmenterWrapperBase(ABC):
         dataset: BaseDataset,
         collate_fn: object,
         ms_tiles_path: Optional[str] = None,
+        heatmap_output_dir: Optional['Path'] = None,
     ):
         infer_dl = DataLoader(dataset, batch_size=self.config.image_batch_size, shuffle=False,
                               collate_fn=collate_fn,
@@ -327,6 +354,11 @@ class SegmenterWrapperBase(ABC):
         tiles_masks_polygons = []
         tiles_masks_scores = []
         queue = multiprocessing.JoinableQueue()  # Create a JoinableQueue
+
+        # Store heatmap dir and tile paths as instance vars so forward() can access them
+        # without changing the forward() signature across all subclasses.
+        self._heatmap_output_dir = heatmap_output_dir
+        self._pending_heatmap_tile_paths: List[str] = []
 
         print(f"Setting up {self.config.pp_n_workers} post-processing workers...")
         # Create a manager to share data across processes
@@ -378,6 +410,7 @@ class SegmenterWrapperBase(ABC):
                     for tp in current_tile_paths
                 ]
 
+            self._pending_heatmap_tile_paths = current_tile_paths
             self.forward(
                 images=images,
                 boxes=boxes,

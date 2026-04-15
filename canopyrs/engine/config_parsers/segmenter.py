@@ -134,6 +134,10 @@ class SegmenterConfig(BaseConfig):
     ensemble_n_runs: int = 1
     ensemble_box_jitter_scale: float = 0.0
     ensemble_method: str = "heatmap"
+    # When True, save per-tile probability heatmap GeoTIFFs to
+    # <segmenter_output_dir>/ensemble_heatmaps/ for debugging.
+    # Only has an effect when ensemble_n_runs > 1 and ensemble_method == "heatmap".
+    save_ensemble_heatmap: bool = False
 
     # ---------------------------------------------------------------------------
     # Multispectral (MS) / Vegetation Index configuration – Path A

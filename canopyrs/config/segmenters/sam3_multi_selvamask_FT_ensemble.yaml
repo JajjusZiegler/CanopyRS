@@ -27,3 +27,4 @@ pp_simplify_tolerance: 0.0
 ensemble_n_runs: 5
 ensemble_box_jitter_scale: 0.05
 ensemble_method: heatmap
+save_ensemble_heatmap: true

@@ -136,7 +136,7 @@ class Sam2PredictorWrapper(SegmenterWrapperBase):
                         s_flat = s[:, 0] if s.ndim == 2 else s
                         return m, s_flat
 
-                    rgb_masks, rgb_scores = self._ensemble_predict(_predict_fn_rgb, pil_image, box_batch)
+                    rgb_masks, rgb_scores, _ = self._ensemble_predict(_predict_fn_rgb, pil_image, box_batch)
 
                     # MS inference (optional)
                     if ms_pil_image is not None:
@@ -151,7 +151,7 @@ class Sam2PredictorWrapper(SegmenterWrapperBase):
                             s_flat = s[:, 0] if s.ndim == 2 else s
                             return m, s_flat
 
-                        ms_masks, ms_scores = self._ensemble_predict(_predict_fn_ms, ms_pil_image, box_batch)
+                        ms_masks, ms_scores, _ = self._ensemble_predict(_predict_fn_ms, ms_pil_image, box_batch)
 
                         if ms_masks is not None and len(ms_masks) == len(rgb_masks):
                             rgb_masks, rgb_scores = select_best_masks(
