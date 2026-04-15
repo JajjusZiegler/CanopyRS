@@ -157,9 +157,16 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
 
         ms_iter = ms_images if use_ms else [None] * len(images)
 
-        for image, image_boxes, image_boxes_object_ids, tile_idx, ms_image in zip(
+        save_heatmap = (
+            getattr(self.config, 'save_ensemble_heatmap', False)
+            and getattr(self.config, 'ensemble_n_runs', 1) > 1
+            and getattr(self.config, 'ensemble_method', 'heatmap') == 'heatmap'
+            and getattr(self, '_heatmap_output_dir', None) is not None
+        )
+
+        for img_i, (image, image_boxes, image_boxes_object_ids, tile_idx, ms_image) in enumerate(zip(
             images, boxes, boxes_object_ids, tiles_idx, ms_iter
-        ):
+        )):
             # C,H,W → H,W,C, RGB only
             image = image[:3, :, :].transpose((1, 2, 0))
             if image.max() <= 1.0:
@@ -168,6 +175,10 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
                 image = image.astype(np.uint8)
 
             orig_H, orig_W, _ = image.shape
+
+            # Per-tile heatmap accumulator: max probability across all box batches.
+            # Shape: (H_resized, W_resized) float32, built up during the box loop.
+            tile_prob_max: Optional[np.ndarray] = None
 
             # Optionally resize to target_tile_size
             if orig_H != self.target_tile_size or orig_W != self.target_tile_size:
@@ -223,14 +234,19 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
                         oid for oid, v in zip(box_object_ids_batch, valid) if v
                     ]
 
-                    masks, scores = self._ensemble_predict(self._predict_batch, pil_image, box_batch)
+                    masks, scores, prob_map = self._ensemble_predict(self._predict_batch, pil_image, box_batch)
+
+                    if save_heatmap and prob_map is not None:
+                        # accumulate per-pixel max probability across box batches
+                        batch_max = prob_map.max(axis=0)  # (H, W)
+                        tile_prob_max = batch_max if tile_prob_max is None else np.maximum(tile_prob_max, batch_max)
 
                     if masks is None or len(masks) == 0:
                         continue
 
                     # MS inference (optional)
                     if ms_pil_image is not None:
-                        ms_masks, ms_scores = self._ensemble_predict(self._predict_batch, ms_pil_image, box_batch)
+                        ms_masks, ms_scores, _ = self._ensemble_predict(self._predict_batch, ms_pil_image, box_batch)
                         if ms_masks is not None and len(ms_masks) == len(masks):
                             masks, scores = select_best_masks(
                                 masks, scores, ms_masks, ms_scores
@@ -253,6 +269,24 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
                         tile_idx,
                         n_masks_processed,
                         queue,
+                    )
+
+            # Save per-tile heatmap after all box batches for this image are done.
+            if save_heatmap and tile_prob_max is not None:
+                heatmap_to_save = tile_prob_max
+                # Resize back to original tile resolution if the tile was upscaled.
+                if orig_H != tile_prob_max.shape[0] or orig_W != tile_prob_max.shape[1]:
+                    import cv2 as _cv2
+                    heatmap_to_save = _cv2.resize(
+                        tile_prob_max, (orig_W, orig_H), interpolation=_cv2.INTER_LINEAR
+                    )
+                tile_path = getattr(self, '_pending_heatmap_tile_paths', [])
+                tile_path = tile_path[img_i] if img_i < len(tile_path) else None
+                if tile_path is not None:
+                    self._save_tile_heatmap(
+                        heatmap_to_save,
+                        tile_path,
+                        self._heatmap_output_dir,
                     )
 
     # ------------------------------------------------------------------ #
@@ -387,9 +421,11 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
         self,
         dataset: DetectionLabeledRasterCocoDataset,
         ms_tiles_path: Optional[str] = None,
+        heatmap_output_dir: Optional[Path] = None,
     ):
         return self._infer_on_dataset(
             dataset,
             collate_fn_infer_image_box,
             ms_tiles_path=ms_tiles_path,
+            heatmap_output_dir=heatmap_output_dir,
         )

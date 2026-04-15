@@ -178,8 +178,16 @@ class SegmenterComponent(BaseComponent):
             ms_tiles_path = data_state.ms_tiles_path
 
         # Run inference (with optional MS tiles for dual-stream segmentation)
+        heatmap_output_dir = None
+        if getattr(self.config, 'save_ensemble_heatmap', False) and self.output_path is not None:
+            heatmap_output_dir = Path(self.output_path) / 'ensemble_heatmaps'
+
         tiles_paths, tiles_masks_objects_ids, tiles_masks_polygons, tiles_masks_scores = \
-            segmenter.infer_on_dataset(dataset, ms_tiles_path=ms_tiles_path)
+            segmenter.infer_on_dataset(dataset, ms_tiles_path=ms_tiles_path, heatmap_output_dir=heatmap_output_dir)
+
+        if heatmap_output_dir is not None and heatmap_output_dir.exists():
+            n = len(list(heatmap_output_dir.glob('*.tif')))
+            print(f"SegmenterComponent: Saved {n} ensemble heatmap(s) to '{heatmap_output_dir}'.")
 
         # Flatten outputs into GDF
         rows = []
