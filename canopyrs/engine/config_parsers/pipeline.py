@@ -6,6 +6,7 @@ import yaml
 from canopyrs.engine.config_parsers.aggregator import AggregatorConfig
 from canopyrs.engine.config_parsers.classifier import ClassifierConfig
 from canopyrs.engine.config_parsers.detector import DetectorConfig
+from canopyrs.engine.config_parsers.multirun_merger import MultiRunMergerConfig
 from canopyrs.engine.config_parsers.rgb_enhancer import RgbEnhancerConfig
 from canopyrs.engine.config_parsers.segmenter import SegmenterConfig
 from canopyrs.engine.config_parsers.tilerizer import TilerizerConfig
@@ -38,6 +39,8 @@ class PipelineConfig(BaseConfig):
                 component_cls = ClassifierConfig
             elif component_type == 'rgb_enhancer':
                 component_cls = RgbEnhancerConfig
+            elif component_type == 'multirun_merger':
+                component_cls = MultiRunMergerConfig
             else:
                 raise ValueError(f'Invalid component {component_config}')
 
@@ -53,3 +56,4 @@ class PipelineConfig(BaseConfig):
             components_configs.append((component_type, component_config))
 
         return cls(components_configs=components_configs)
+

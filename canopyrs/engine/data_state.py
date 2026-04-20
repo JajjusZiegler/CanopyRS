@@ -38,6 +38,11 @@ class DataState:
     #   detection on each tile set, fusing the per-method results with WBF.
     enhanced_tiles_paths: Optional[Dict[str, str]] = None
 
+    # multirun_gdfs: a list of GeoDataFrames produced by multiple independent
+    #   pipeline runs (e.g. on different pseudo-RGB spectral combinations).
+    #   Consumed by MultiRunMergerComponent to fuse them into one consensus GDF.
+    multirun_gdfs: Optional[List[gpd.GeoDataFrame]] = None
+
     background_executor: Optional = None
     side_processes: List = field(default_factory=list)
 

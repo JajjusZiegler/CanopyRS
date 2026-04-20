@@ -142,6 +142,9 @@ class Pipeline:
                 component = ClassifierComponent(component_config, output_path, component_id)
             elif component_type == 'rgb_enhancer':
                 component = RgbEnhancerComponent(component_config, output_path, component_id)
+            elif component_type == 'multirun_merger':
+                from canopyrs.engine.components.multirun_merger import MultiRunMergerComponent
+                component = MultiRunMergerComponent(component_config, output_path, component_id)
             else:
                 raise ValueError(f'Invalid component type: {component_type}')
             components.append(component)
@@ -622,6 +625,8 @@ class Pipeline:
             available.add(StateKey.INFER_COCO_PATH)
         if self.data_state.product_name:
             available.add(StateKey.PRODUCT_NAME)
+        if self.data_state.multirun_gdfs:
+            available.add(StateKey.MULTIRUN_GDFS)
         return available
 
     def _get_initial_columns(self) -> Set[str]:
