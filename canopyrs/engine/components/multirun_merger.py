@@ -440,14 +440,17 @@ def _compute_geometry(
                 break
         if intersection.is_empty:
             return all_union
-        # Blend: buffer the intersection slightly toward the union
-        blend_buffer = ((all_union.area - intersection.area) ** 0.5) * 0.1
+        # Buffer the intersection slightly toward the union.  The factor 0.1
+        # gives a ~10 % "reach" relative to the sqrt of the gap area, which
+        # produces a gentle smoothing without over-inflating small polygons.
+        _BLEND_BUFFER_FACTOR = 0.1
+        blend_buffer = ((all_union.area - intersection.area) ** 0.5) * _BLEND_BUFFER_FACTOR
         blended = intersection.buffer(blend_buffer)
         return blended
 
     # 'majority_union' (default)
-    n_cluster = len(cluster_df["_run_index"].unique())
-    min_votes = math.ceil(n_cluster * majority_threshold)
+    n_runs_in_cluster = len(cluster_df["_run_index"].unique())
+    min_votes = math.ceil(n_runs_in_cluster * majority_threshold)
     min_votes = max(min_votes, 1)
 
     # Count how many runs contributed each polygon and keep majority
@@ -483,6 +486,10 @@ def _compute_score(
 ) -> float:
     """Compute the consensus score for a cluster."""
     if score_col is None or score_col not in cluster_df.columns:
+        # No score column available: use 1/obs_count as a proxy so that trees
+        # seen by more runs (higher confidence) get a lower raw score but the
+        # caller can interpret it as an inverse-frequency weight.  In practice
+        # a real score column is almost always present.
         return 1.0 / obs_count
 
     scores = cluster_df[score_col].dropna()
