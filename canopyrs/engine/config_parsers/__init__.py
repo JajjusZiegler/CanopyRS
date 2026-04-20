@@ -3,6 +3,7 @@ from .base import BaseConfig
 from .classifier import ClassifierConfig
 from .detector import DetectorConfig
 from .infer_io import InferIOConfig
+from .multirun_merger import MultiRunMergerConfig
 from .pipeline import PipelineConfig
 from .rgb_enhancer import RgbEnhancerConfig
 from .segmenter import SegmenterConfig
