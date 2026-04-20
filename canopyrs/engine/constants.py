@@ -48,3 +48,8 @@ class StateKey:
     # RGB enhancement ensemble (multi-method detection)
     # Populated by RgbEnhancerComponent; consumed by DetectorComponent.
     ENHANCED_TILES_PATHS = "enhanced_tiles_paths"
+
+    # Multi-run ensemble fusion
+    # List[gpd.GeoDataFrame] produced by multiple independent pipeline runs
+    # (e.g. different pseudo-RGB band combinations).  Consumed by MultiRunMergerComponent.
+    MULTIRUN_GDFS = "multirun_gdfs"
