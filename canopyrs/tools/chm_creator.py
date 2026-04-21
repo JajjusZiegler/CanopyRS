@@ -204,7 +204,7 @@ class ChmCreator:
 
             # 6. Compute CHM
             dsm_data = self._read_dsm_data()
-            chm = self._compute_chm(dsm_data, dtm_resampled)
+            chm = self._compute_chm(dsm_data, dtm_resampled, self.min_tree_height)
             logger.info(
                 "CHM computed  min=%.1f  max=%.1f  mean=%.1f",
                 float(np.nanmin(chm)),
@@ -443,14 +443,6 @@ class ChmCreator:
         # Clamp: negative values and values below min height → 0
         chm = np.where(np.isfinite(chm) & (chm >= min_tree_height), chm, 0.0)
         return chm.astype(np.float32)
-
-    def _compute_chm_with_threshold(
-        self,
-        dsm_data: np.ndarray,
-        dtm_data: np.ndarray,
-    ) -> np.ndarray:
-        """Compute CHM applying the configured ``min_tree_height`` threshold."""
-        return self._compute_chm(dsm_data, dtm_data, self.min_tree_height)
 
 
 # ---------------------------------------------------------------------------
