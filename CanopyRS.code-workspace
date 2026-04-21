@@ -1,7 +1,47 @@
 {
+    // Open this workspace file using:
+    //   File > Open Workspace from File...
+    // It will reopen in WSL automatically via the Remote - WSL extension.
     "folders": [
         {
+            // WSL native repo (fast I/O — use this for all inference runs)
+            "name": "CanopyRS (WSL)",
+            "uri": "vscode-remote://wsl+ubuntu/home/jziegler/CanopyRS"
+        },
+        {
+            // Windows copy (for editing configs / viewing files from Windows)
+            "name": "CanopyRS (Windows)",
             "path": "."
         }
-    ]
+    ],
+    "settings": {
+        "python.defaultInterpreterPath": "/home/jziegler/miniconda3/envs/canopyrs_env/bin/python",
+        "python-envs.defaultEnvManager": "ms-python.python:conda",
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.env.linux": {
+            "CANOPYRS_REPO": "/home/jziegler/CanopyRS",
+            "ORTHOMOSAIC_DIR": "/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects",
+            "CUDA_HOME": "/usr/local/cuda-12.6"
+        },
+        "terminal.integrated.cwd": "/home/jziegler/CanopyRS",
+        "files.exclude": {
+            "**/__pycache__": true,
+            "**/*.pyc": true
+        },
+        // Auto-activate canopyrs_env in every integrated terminal
+        "terminal.integrated.shellIntegration.enabled": true
+    },
+    "extensions": {
+        "recommendations": [
+            "ms-vscode-remote.remote-wsl",
+            "ms-python.python",
+            "ms-python.vscode-pylance",
+            "redhat.vscode-yaml",
+            "ms-toolsai.jupyter"
+        ]
+    },
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": []
+    }
 }

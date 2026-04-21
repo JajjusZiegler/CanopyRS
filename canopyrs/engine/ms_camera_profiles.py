@@ -65,7 +65,7 @@ MS_CAMERA_PROFILES: Dict[str, Dict[str, Any]] = {
         "ms_red_band_idx": 2,
         "ms_red_edge_band_idx": 3,
         "ms_nir_band_idx": 4,
-        "supported_vis": ["ndvi", "nir", "pri", "ndre", "evi"],
+        "supported_vis": ["ndvi", "nir", "pri", "ndre", "evi", "gndvi"],
         "wavelengths_nm": {
             "blue": 475,
             "green": 560,
@@ -90,7 +90,7 @@ MS_CAMERA_PROFILES: Dict[str, Dict[str, Any]] = {
         "ms_red_band_idx": 2,
         "ms_red_edge_band_idx": 3,
         "ms_nir_band_idx": 4,
-        "supported_vis": ["ndvi", "nir", "pri", "ndre", "evi"],
+        "supported_vis": ["ndvi", "nir", "pri", "ndre", "evi", "gndvi"],
         "wavelengths_nm": {
             "blue": 475,
             "green": 560,
@@ -126,7 +126,7 @@ MS_CAMERA_PROFILES: Dict[str, Dict[str, Any]] = {
         "ms_red_band_idx": 2,         # Red 668 nm   (cam1)
         "ms_red_edge_band_idx": 3,    # RedEdge 717 nm (cam1); alt: 8 (705 nm, cam2)
         "ms_nir_band_idx": 4,         # NIR 840 nm   (cam1); alt: 9 (740 nm, cam2)
-        "supported_vis": ["ndvi", "nir", "pri", "ndre", "evi"],
+        "supported_vis": ["ndvi", "nir", "pri", "ndre", "evi", "gndvi"],
         "wavelengths_nm": {
             # Camera 1
             "blue_cam1": 475,
@@ -170,7 +170,7 @@ MS_CAMERA_PROFILES: Dict[str, Dict[str, Any]] = {
         "ms_red_band_idx": 2,
         "ms_red_edge_band_idx": 3,
         "ms_nir_band_idx": 4,
-        "supported_vis": ["ndvi", "nir", "pri", "ndre", "evi"],
+        "supported_vis": ["ndvi", "nir", "pri", "ndre", "evi", "gndvi"],
         "wavelengths_nm": {
             "blue": 475,
             "green": 560,
@@ -199,7 +199,7 @@ MS_CAMERA_PROFILES: Dict[str, Dict[str, Any]] = {
         "ms_red_band_idx": 2,
         "ms_red_edge_band_idx": 3,
         "ms_nir_band_idx": 4,
-        "supported_vis": ["ndvi", "nir", "pri", "ndre", "evi"],
+        "supported_vis": ["ndvi", "nir", "pri", "ndre", "evi", "gndvi"],
         "wavelengths_nm": {
             "blue": 450,
             "green": 560,

@@ -1,0 +1,47 @@
+# SAM3 quality ensemble + Altum-PT NDVI dual-stream
+#
+# Identical inference settings to sam3_multi_selvamask_FT_ensemble.yaml plus
+# multispectral dual-stream support: when ms_tiles_path is populated by the
+# tilerizer, each tile is also run with an NDVI-derived 3-channel greyscale
+# image and the mask with the higher predicted IoU score is kept per crown.
+#
+# Camera: MicaSense Altum-PT (7-band Metashape export)
+#   Band 0: Blue 475 nm
+#   Band 1: Green 560 nm
+#   Band 2: Red 668 nm
+#   Band 3: Red-Edge 717 nm
+#   Band 4: NIR 842 nm
+#   Band 5: Thermal LWIR (ignored)
+#   Band 6: Alpha mask (ignored)
+
+# Model inference
+model: sam3
+architecture: l
+checkpoint_path: https://huggingface.co/CanopyRS/sam3-multi-selvabox-selvamask-FT/resolve/main/sam3_selvamask_ft_model_best.pt
+image_batch_size: 1
+box_batch_size: 30
+pp_down_scale_masks_px: 512
+pp_n_workers: 16
+pp_remove_rings: true
+pp_remove_small_geoms: 50
+pp_simplify_tolerance: 0.0
+
+# Ensemble settings (same as quality preset)
+ensemble_n_runs: 5
+ensemble_box_jitter_scale: 0.05
+ensemble_method: heatmap
+save_ensemble_heatmap: false
+
+# ---------------------------------------------------------------------------
+# Multispectral dual-stream  (Path A – Early Resampling)
+# ---------------------------------------------------------------------------
+# Requires data_state.ms_tiles_path to be populated by the tilerizer, which
+# happens when -ms / --multispectral is passed to infer.py pointing to the
+# co-registered Altum-PT 7-band raster.
+#
+# The segmenter will compute NDVI from the MS tile, convert it to a 3-channel
+# 8-bit greyscale image (vi_to_sam_input), run SAM3 on it as well as on the
+# standard pseudo-RGB tile, then keep the mask with the higher predicted IoU
+# score for each detected crown.
+ms_camera: altum_pt        # auto-populates band indices for Altum-PT
+ms_index_type: ndvi        # NDVI = (NIR - Red) / (NIR + Red)
