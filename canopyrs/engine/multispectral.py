@@ -42,16 +42,19 @@ def calculate_vi(
                  (the function casts to float32 internally).
         index_type: Which index to compute.  Supported values:
 
-            * ``"ndvi"``  – Normalised Difference Vegetation Index
+            * ``"ndvi"``   – Normalised Difference Vegetation Index
               ``(NIR - Red) / (NIR + Red)``
-            * ``"nir"``   – Raw NIR band, normalised to [0, 1]
-            * ``"pri"``   – Photochemical Reflectance Index
+            * ``"nir"``    – Raw NIR band, normalised to [0, 1]
+            * ``"pri"``    – Photochemical Reflectance Index
               ``(Green - Blue) / (Green + Blue)``
-            * ``"ndre"``  – Normalised Difference Red-Edge Index
+            * ``"ndre"``   – Normalised Difference Red-Edge Index
               ``(NIR - RedEdge) / (NIR + RedEdge)``
               (requires ``red_edge_band_idx`` to be set)
-            * ``"evi"``   – Enhanced Vegetation Index
+            * ``"evi"``    – Enhanced Vegetation Index
               ``2.5 * (NIR - Red) / (NIR + 6*Red - 7.5*Blue + 1)``
+            * ``"gndvi"``  – Green Normalised Difference Vegetation Index
+              ``(NIR - Green) / (NIR + Green)``
+              Sensitive to chlorophyll content in mid-to-late season.
 
         nir_band_idx:       Zero-based band index for Near-Infrared (default 4).
         red_band_idx:       Zero-based band index for Red (default 2).
@@ -124,10 +127,24 @@ def calculate_vi(
         with np.errstate(divide='ignore', invalid='ignore'):
             vi = np.where(np.abs(denom) > eps, 2.5 * (nir - red) / denom, 0.0)
 
+    elif index_type_lower == "gndvi":
+        nir = _band(nir_band_idx, "NIR")
+        green = _band(green_band_idx, "Green")
+        denom = nir + green
+        with np.errstate(divide='ignore', invalid='ignore'):
+            vi = np.where(np.abs(denom) > eps, (nir - green) / denom, 0.0)
+
+    elif index_type_lower == "ndwi":
+        green = _band(green_band_idx, "Green")
+        nir = _band(nir_band_idx, "NIR")
+        denom = green + nir
+        with np.errstate(divide='ignore', invalid='ignore'):
+            vi = np.where(np.abs(denom) > eps, (green - nir) / denom, 0.0)
+
     else:
         raise ValueError(
             f"Unsupported index_type '{index_type}'.  "
-            f"Supported types: 'ndvi', 'nir', 'pri', 'ndre', 'evi'."
+            f"Supported types: 'ndvi', 'nir', 'pri', 'ndre', 'evi', 'gndvi', 'ndwi'."
         )
 
     vi = np.nan_to_num(vi.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
@@ -197,6 +214,9 @@ def select_best_masks(
     assert rgb_masks.shape == ms_masks.shape, (
         f"Mask shape mismatch: rgb {rgb_masks.shape} vs ms {ms_masks.shape}"
     )
+    # Ensure scores are 1-D (N,) — SAM3 may return (N, 1) raw logits
+    rgb_scores = rgb_scores.reshape(-1)
+    ms_scores = ms_scores.reshape(-1)
     assert rgb_scores.shape == ms_scores.shape
 
     # Choose MS mask where its score is strictly higher than RGB score

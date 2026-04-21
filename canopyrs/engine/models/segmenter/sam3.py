@@ -370,6 +370,7 @@ class Sam3PredictorWrapper(SegmenterWrapperBase):
         scores = torch.sigmoid(
             output.object_score_logits.float()
         ).detach().cpu().numpy()
+        scores = scores.reshape(-1)  # SAM3 may return (N, 1); ensure 1-D (N,)
         if scores.shape[0] != n_boxes:
             scores = np.ones(n_boxes, dtype=np.float32)
 

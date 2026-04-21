@@ -49,6 +49,8 @@ def pipeline_main(args):
         if args.aoi_path:
             config_args['aoi_config'] = 'package'
             config_args['aoi'] = args.aoi_path
+        if args.multispectral:
+            config_args['multispectral_imagery'] = args.multispectral
 
         io_config = InferIOConfig(**config_args)
     else:
@@ -69,6 +71,8 @@ if __name__ == '__main__':
     parser.add_argument("-o", "--output_path", type=str, help="Path to the output folder.")
     parser.add_argument("-t", "--tiles_path", type=str, help="Path to the tiles folder to infer on.")
     parser.add_argument("-aoi", "--aoi_path", type=str, help="Path to the area of interest (AOI) geopackage.")
+    parser.add_argument("-ms", "--multispectral", type=str, default=None,
+                        help="Path to a co-registered multispectral raster (enables dual-stream MS inference).")
     parser.add_argument("--no-strict-rgb", action="store_true", default=False,
                         help="Disable strict RGB band validation (use for multispectral rasters).")
 

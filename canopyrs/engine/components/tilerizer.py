@@ -12,8 +12,9 @@ resampled multispectral (MS) tiles that match every RGB tile in spatial extent
 
     <output_path>/ms_tiles/<same_filename_as_rgb_tile>
 
-The geographic bounding box of the RGB tile is re-used unchanged, so no
-coordinate transformation is needed downstream.  Resampling uses bilinear
+The geographic bounding box of the RGB tile is reprojected to the MS CRS
+when they differ (e.g. geodataset reprojects tiles to EPSG:32632 while the
+MS raster remains in EPSG:4326).  Resampling uses bilinear
 interpolation which is appropriate for continuous spectral data such as
 reflectance bands.  The resulting ``ms_tiles/`` directory path is stored on
 ``data_state.ms_tiles_path`` so that subsequent SAM segmenters can load the
@@ -27,6 +28,7 @@ import geopandas as gpd
 import rasterio
 from rasterio.windows import from_bounds
 from rasterio.enums import Resampling
+from pyproj import Transformer
 
 from geodataset.aoi import AOIConfig
 from geodataset.tilerize import RasterTilerizer, LabeledRasterTilerizer, RasterPolygonTilerizer
@@ -315,13 +317,29 @@ class TilerizerComponent(BaseComponent):
                         rgb_transform = src_rgb.transform
                         rgb_crs = src_rgb.crs
 
+                    # Reproject tile bounds to MS CRS when they differ
+                    # (e.g. RGB tiles in EPSG:32632, MS raster in EPSG:4326).
+                    if rgb_crs and ms_crs and rgb_crs != ms_crs:
+                        transformer = Transformer.from_crs(
+                            rgb_crs, ms_crs, always_xy=True
+                        )
+                        left_ms, bottom_ms = transformer.transform(
+                            bounds.left, bounds.bottom
+                        )
+                        right_ms, top_ms = transformer.transform(
+                            bounds.right, bounds.top
+                        )
+                    else:
+                        left_ms, bottom_ms = bounds.left, bounds.bottom
+                        right_ms, top_ms = bounds.right, bounds.top
+
                     # Build the window into the MS raster corresponding to the
                     # same geographic bounding box as the RGB tile.
                     window_ms = from_bounds(
-                        bounds.left,
-                        bounds.bottom,
-                        bounds.right,
-                        bounds.top,
+                        left_ms,
+                        bottom_ms,
+                        right_ms,
+                        top_ms,
                         transform=ms_transform,
                     )
 

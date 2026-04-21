@@ -50,46 +50,52 @@ def process_masks(queue,
         if item is None:
             break
         tile_idx, mask_ids, box_object_ids, masks, scores, image_size = item
-        masks_polygons = [mask_to_polygon(mask,
-                                          simplify_tolerance=simplify_tolerance,
-                                          remove_rings=remove_rings,
-                                          remove_small_geoms=remove_small_geoms) for mask in masks]
+        try:
+            masks_polygons = [mask_to_polygon(mask,
+                                              simplify_tolerance=simplify_tolerance,
+                                              remove_rings=remove_rings,
+                                              remove_small_geoms=remove_small_geoms) for mask in masks]
 
-        # Fix invalid polygons
-        for id, polygon in enumerate(masks_polygons):
-            if not polygon.is_valid:
-                # If the polygon is still invalid, set its score to 0 and create a dummy box polygon
-                polygon = box(0, 0, 1, 1)
-                scores[id] = 0.0
-            if polygon.is_empty:
-                # If the polygon is empty, set its score to 0 and create a dummy box polygon
-                polygon = box(0, 0, 1, 1)
-                scores[id] = 0.0
-            masks_polygons[id] = polygon
+            # Fix invalid polygons
+            for id, polygon in enumerate(masks_polygons):
+                if not polygon.is_valid:
+                    # If the polygon is still invalid, set its score to 0 and create a dummy box polygon
+                    polygon = box(0, 0, 1, 1)
+                    scores[id] = 0.0
+                if polygon.is_empty:
+                    # If the polygon is empty, set its score to 0 and create a dummy box polygon
+                    polygon = box(0, 0, 1, 1)
+                    scores[id] = 0.0
+                masks_polygons[id] = polygon
 
-        mask_h, mask_w = masks.shape[-2], masks.shape[-1]  # e.g. 28,28
-        orig_h, orig_w = image_size[0], image_size[1]  # e.g. 1024,1024
-        if (mask_h != orig_h) or (mask_w != orig_w):
-            # Compute scaling factors for x (width) and y (height)
-            scale_x = float(orig_w) / float(mask_w)
-            scale_y = float(orig_h) / float(mask_h)
-            resized_polygons = []
-            for poly in masks_polygons:
-                # Scale shapely polygon from (0,0)
-                poly_scaled = scale(poly, xfact=scale_x, yfact=scale_y, origin=(0, 0))
-                resized_polygons.append(poly_scaled)
+            mask_h, mask_w = masks.shape[-2], masks.shape[-1]  # e.g. 28,28
+            orig_h, orig_w = image_size[0], image_size[1]  # e.g. 1024,1024
+            if (mask_h != orig_h) or (mask_w != orig_w):
+                # Compute scaling factors for x (width) and y (height)
+                scale_x = float(orig_w) / float(mask_w)
+                scale_y = float(orig_h) / float(mask_h)
+                resized_polygons = []
+                for poly in masks_polygons:
+                    # Scale shapely polygon from (0,0)
+                    poly_scaled = scale(poly, xfact=scale_x, yfact=scale_y, origin=(0, 0))
+                    resized_polygons.append(poly_scaled)
 
-            masks_polygons = resized_polygons
+                masks_polygons = resized_polygons
 
-        # Store the tile/image results
-        if tile_idx not in results:
-            results[tile_idx] = []
-        [results[tile_idx].append((mask_id, box_object_id, mask_poly, score)) for mask_id, box_object_id, mask_poly, score in
-         zip(mask_ids, box_object_ids, masks_polygons, scores)]
+            # Store the tile/image results
+            if tile_idx not in results:
+                results[tile_idx] = []
+            [results[tile_idx].append((mask_id, box_object_id, mask_poly, score)) for mask_id, box_object_id, mask_poly, score in
+             zip(mask_ids, box_object_ids, masks_polygons, scores)]
 
-        queue.task_done()  # Indicate that the task is complete
-        with processed_counter.get_lock():
-            processed_counter.value += 1
+            with processed_counter.get_lock():
+                processed_counter.value += 1
+        except Exception as e:
+            import traceback
+            print(f"[process_masks] ERROR on tile_idx={tile_idx}, masks={masks.shape}: {e}\n{traceback.format_exc()}",
+                  flush=True)
+        finally:
+            queue.task_done()  # Always signal completion to unblock queue.join()
 
     with output_dict_lock:
         for tile_idx in results:
