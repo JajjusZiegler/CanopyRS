@@ -353,3 +353,98 @@ class TestMsCameraProfiles:
         assert vi.shape == (32, 32)
         assert not np.any(np.isnan(vi))
 
+    # -- AltumPT profile tests ------------------------------------------------
+
+    def test_altum_pt_profile_has_7_bands(self):
+        """AltumPT Metashape export profile must declare 7 bands (not 6)."""
+        p = get_profile("altum_pt")
+        assert p["n_bands"] == 7, (
+            f"altum_pt should have 7 bands (Blue, Green, Red, RE, NIR, Thermal, Alpha) "
+            f"but n_bands={p['n_bands']}"
+        )
+
+    def test_altum_pt_canonical_alias_identical(self):
+        """'altum_pt' alias must resolve to the same profile as 'micasense_altum_pt'."""
+        assert get_profile("altum_pt") is get_profile("micasense_altum_pt")
+
+    def test_altum_pt_vi_bands_in_range_0_to_4(self):
+        """All VI band indices for AltumPT must be in bands 0–4 (the MS bands)."""
+        p = get_profile("altum_pt")
+        for field in [
+            "ms_blue_band_idx",
+            "ms_green_band_idx",
+            "ms_red_band_idx",
+            "ms_red_edge_band_idx",
+            "ms_nir_band_idx",
+        ]:
+            assert 0 <= p[field] <= 4, (
+                f"{field}={p[field]} is outside the MS reflectance band range 0–4 "
+                f"for AltumPT.  Thermal (5) and Alpha (6) must not be used for VIs."
+            )
+
+    def test_altum_pt_ndvi_on_7band_tile(self):
+        """NDVI must compute correctly on a synthetic 7-band AltumPT tile."""
+        p = get_profile("altum_pt")
+        ms = np.random.default_rng(9).random((7, 32, 32), dtype=np.float32)
+        vi = calculate_vi(
+            ms,
+            index_type="ndvi",
+            nir_band_idx=p["ms_nir_band_idx"],
+            red_band_idx=p["ms_red_band_idx"],
+        )
+        assert vi.shape == (32, 32)
+        assert vi.dtype == np.float32
+        assert not np.any(np.isnan(vi))
+        assert vi.min() >= -1.0 - 1e-5
+        assert vi.max() <= 1.0 + 1e-5
+
+    def test_segmenter_config_altum_pt_auto_populates(self):
+        """ms_camera='altum_pt' must set band indices 0–4 from the AltumPT profile."""
+        from canopyrs.engine.config_parsers.segmenter import SegmenterConfig
+        cfg = SegmenterConfig(ms_camera="altum_pt", ms_index_type="ndvi")
+        assert cfg.ms_camera == "altum_pt"
+        assert cfg.ms_blue_band_idx == 0
+        assert cfg.ms_green_band_idx == 1
+        assert cfg.ms_red_band_idx == 2
+        assert cfg.ms_red_edge_band_idx == 3
+        assert cfg.ms_nir_band_idx == 4
+
+    def test_segmenter_config_altum_pt_does_not_break_mx_dual(self):
+        """Adding altum_pt must not affect the mx_dual SegmenterConfig defaults."""
+        from canopyrs.engine.config_parsers.segmenter import SegmenterConfig
+        cfg = SegmenterConfig(ms_camera="mx_dual", ms_index_type="ndvi")
+        assert cfg.ms_nir_band_idx == 4   # Camera-1 NIR (unchanged)
+        assert cfg.ms_blue_band_idx == 0
+        assert cfg.ms_red_band_idx == 2
+
+    def test_segmenter_config_rgb_only_no_ms_camera_unaffected(self):
+        """RGB-only config (ms_camera=None, ms_index_type=None) must be unaffected
+        by the addition of altum_pt to the profile registry."""
+        from canopyrs.engine.config_parsers.segmenter import SegmenterConfig
+        cfg = SegmenterConfig()   # pure RGB defaults
+        assert cfg.ms_camera is None
+        assert cfg.ms_index_type is None
+        assert cfg.ms_nir_band_idx == 4
+        assert cfg.ms_red_band_idx == 2
+        assert cfg.ms_blue_band_idx == 0
+
+    # -- MXdual all VIs -------------------------------------------------------
+
+    def test_mx_dual_all_vis_with_cam1_bands(self):
+        """All supported VIs must compute without error on a 10-band MX Dual tile
+        using Camera-1 default band indices."""
+        p = get_profile("mx_dual")
+        ms = np.random.default_rng(10).random((10, 32, 32), dtype=np.float32)
+        for vi_type in p["supported_vis"]:
+            vi = calculate_vi(
+                ms,
+                index_type=vi_type,
+                nir_band_idx=p["ms_nir_band_idx"],
+                red_band_idx=p["ms_red_band_idx"],
+                green_band_idx=p["ms_green_band_idx"],
+                blue_band_idx=p["ms_blue_band_idx"],
+                red_edge_band_idx=p["ms_red_edge_band_idx"],
+            )
+            assert vi.shape == (32, 32), f"Shape wrong for VI '{vi_type}'"
+            assert not np.any(np.isnan(vi)), f"NaN found for VI '{vi_type}'"
+

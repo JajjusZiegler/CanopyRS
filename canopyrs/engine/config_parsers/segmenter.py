@@ -160,7 +160,7 @@ class SegmenterConfig(BaseConfig):
     #   "altum"           – MicaSense Altum         (5-band)
     #   "rededge_mx"      – MicaSense RedEdge-MX    (5-band)
     #   "mx_dual"         – MicaSense RedEdge-MX Dual (10-band)
-    #   "altum_pt"        – MicaSense Altum-PT      (6-band)
+    #   "altum_pt"        – MicaSense Altum-PT      (7-band)
     #   "p4_multispectral"– DJI P4 Multispectral    (5-band)
     ms_camera: Optional[str] = None
 
