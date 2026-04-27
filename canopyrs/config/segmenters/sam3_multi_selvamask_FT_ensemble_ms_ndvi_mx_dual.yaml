@@ -1,0 +1,52 @@
+# SAM3 quality ensemble + MicaSense RedEdge-MX Dual NDVI dual-stream
+#
+# Identical inference settings to sam3_multi_selvamask_FT_ensemble.yaml plus
+# multispectral dual-stream support for MicaSense RedEdge-MX Dual (10-band).
+#
+# Camera: MicaSense RedEdge-MX Dual (Metashape 10-band export)
+#   Camera 1 (bands 0-4):
+#     Band 0: Blue      475 nm
+#     Band 1: Green     560 nm
+#     Band 2: Red       668 nm
+#     Band 3: RedEdge   717 nm
+#     Band 4: NIR       840 nm
+#   Camera 2 (bands 5-9):
+#     Band 5: CoastalBlue 444 nm
+#     Band 6: Green       531 nm
+#     Band 7: Red         650 nm
+#     Band 8: RedEdge     705 nm
+#     Band 9: NIR         740 nm
+#
+# When ms_tiles_path is populated by the tilerizer, NDVI is computed from
+# Camera-1 bands (NIR=4, Red=2) for each MS tile.  SAM3 runs on both the
+# RGB tile and the NDVI-derived greyscale tile; the mask with the higher
+# predicted IoU score is kept per detected crown.
+
+# Model inference
+model: sam3
+architecture: l
+checkpoint_path: https://huggingface.co/CanopyRS/sam3-multi-selvabox-selvamask-FT/resolve/main/sam3_selvamask_ft_model_best.pt
+image_batch_size: 1
+box_batch_size: 30
+pp_down_scale_masks_px: 512
+pp_n_workers: 16
+pp_remove_rings: true
+pp_remove_small_geoms: 50
+pp_simplify_tolerance: 0.0
+
+# Ensemble settings (same as quality preset)
+ensemble_n_runs: 5
+ensemble_box_jitter_scale: 0.05
+ensemble_method: heatmap
+save_ensemble_heatmap: false
+
+# ---------------------------------------------------------------------------
+# Multispectral dual-stream — MicaSense RedEdge-MX Dual
+# ---------------------------------------------------------------------------
+# Requires data_state.ms_tiles_path to be populated by the tilerizer, which
+# happens when -ms / --multispectral is passed to infer.py pointing to the
+# co-registered 10-band MX Dual raster.
+#
+# Uses Camera-1 NIR (band 4) and Red (band 2) to compute NDVI.
+ms_camera: mx_dual         # auto-populates band indices for MX Dual (cam1)
+ms_index_type: ndvi        # NDVI = (NIR - Red) / (NIR + Red)

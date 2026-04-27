@@ -191,6 +191,20 @@ class TilerizerComponent(BaseComponent):
 
         columns_to_pass = [col for col in columns_to_pass if col not in {Col.GEOMETRY, Col.TILE_PATH}]  # already taken care of by COCO format
 
+        # Enable GDAL's virtual I/O cache so partial reads from network mounts
+        # (SMB/CIFS/NFS) are buffered and transparently retried at the GDAL
+        # level, preventing TIFFReadEncodedTile failures on large rasters.
+        gdal_env = rasterio.Env(
+            VSI_CACHE=True,
+            VSI_CACHE_SIZE=128 * 1024 * 1024,  # 128 MB read-ahead cache
+            GDAL_CACHEMAX=512,                  # 512 MB GDAL block cache
+        )
+
+        with gdal_env:
+            return self._run(data_state, columns_to_pass)
+
+    def _run(self, data_state: DataState, columns_to_pass) -> ComponentResult:
+        """Inner tilerizer logic, always executed inside a rasterio.Env context."""
         # Process based on tile_type
         if self.config.tile_type == 'tile':
             if data_state.infer_gdf is not None:

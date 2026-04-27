@@ -415,9 +415,16 @@ def get_base_detrex_model_cfg(config):
         config.architecture = "dino/configs/dino-swin/dino_swin_large_384_5scale_36ep.py"
 
     # loading base config
-    # detrex.__path__ resolves to the inner Python package (detrex/detrex/),
-    # but project configs live at the repo root (detrex/projects/), so use .parent
-    cfg = LazyConfig.load(str(detrex_root.parent / 'projects' / config.architecture))
+    # detrex.__path__ may resolve to the submodule root (namespace package, when the
+    # CanopyRS workspace root is on sys.path and shadows the installed package), or to
+    # the inner Python package (detrex/detrex/) in a normal install.
+    # In the namespace-package case, projects/ lives directly under detrex_root.
+    # In the normal-install case, projects/ lives one level up (detrex_root.parent).
+    if (detrex_root / 'projects').is_dir():
+        detrex_repo_root = detrex_root
+    else:
+        detrex_repo_root = detrex_root.parent
+    cfg = LazyConfig.load(str(detrex_repo_root / 'projects' / config.architecture))
     cfg.train.init_checkpoint = config.checkpoint_path
 
     # dino

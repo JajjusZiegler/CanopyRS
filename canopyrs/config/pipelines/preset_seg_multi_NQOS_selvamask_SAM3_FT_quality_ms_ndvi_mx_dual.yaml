@@ -1,0 +1,57 @@
+# SAM3 quality + MicaSense RedEdge-MX Dual NDVI dual-stream pipeline
+#
+# Designed for sites where you have:
+#   - A high-resolution RGB orthomosaic (any standard 3-band GeoTIFF)
+#   - A co-registered MicaSense RedEdge-MX Dual 10-band orthomosaic
+#
+# ─── What this pipeline does ─────────────────────────────────────────────────
+# tilerizer → detector → aggregator(IoU) → segmenter(SAM3+NDVI) → aggregator(IoA)
+#
+#   1. Tilerizer slices the RGB ortho into 4.5 cm/px tiles.
+#      When -ms points to the MX Dual raster, it also creates co-registered
+#      MS tiles (resampled to match each RGB tile's footprint).
+#   2. Detector (DINO SwinL) runs on the RGB tiles.
+#   3. First aggregator deduplicates cross-tile boxes with IoU NMS.
+#   4. SAM3 quality ensemble runs with 5 jittered box prompts per crown.
+#      For each crown the mask from the NDVI (Camera-1: NIR=band4, Red=band2)
+#      greyscale tile is compared to the RGB mask; the one with the higher
+#      predicted IoU score is kept.
+#   5. Second aggregator resolves overlapping polygons with ioa-disambiguate.
+#
+# ─── Usage ───────────────────────────────────────────────────────────────────
+#   python infer.py \
+#       -c preset_seg_multi_NQOS_selvamask_SAM3_FT_quality_ms_ndvi_mx_dual \
+#       -i  /path/to/rgb_ortho.tif \
+#       -ms /path/to/mx_dual_10band_ortho.tif \
+#       -o  /tmp/canopyrs_mx_dual_ndvi \
+#       -aoi /path/to/aoi.gpkg
+# ─────────────────────────────────────────────────────────────────────────────
+
+components_configs:
+  - tilerizer:
+      tile_type: tile
+      tile_size: 1777
+      tile_overlap: 0.75
+      ground_resolution: 0.045
+      # No rgb_band_indices: input is already a standard 3-band RGB orthomosaic.
+      # The -ms raster (10-band MX Dual) is tiled separately and resampled to
+      # match the RGB tile footprint for dual-stream NDVI inference.
+
+  - detector: detectors/dino_swinL_multi_NQOS_selvamask_FT.yaml
+
+  - aggregator:
+      nms_algorithm: 'iou'
+      score_threshold: 0.4
+      nms_threshold: 0.7
+      edge_band_buffer_percentage: 0.05
+      scores_weights: { 'detector_score': 1.0 }
+
+  - segmenter: segmenters/sam3_multi_selvamask_FT_ensemble_ms_ndvi_mx_dual.yaml
+
+  - aggregator:
+      nms_algorithm: 'ioa-disambiguate'
+      score_threshold: 0.6
+      nms_threshold: 0.05
+      edge_band_buffer_percentage: 0.05
+      scores_weights: {'detector_score': 0.5, 'segmenter_score': 0.5}
+      scores_weighting_method: 'weighted_geometric_mean'
