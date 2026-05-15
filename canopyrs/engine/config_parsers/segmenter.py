@@ -24,7 +24,7 @@ class SegmenterConfig(BaseConfig):
     pp_down_scale_masks_px: Optional[int] = 512
     pp_simplify_tolerance: float = 0.0
     pp_remove_rings: bool = True
-    pp_remove_small_geoms: float = 50
+    pp_remove_small_geoms: float = 100
 
     box_padding_percentage: float = 0.00
 

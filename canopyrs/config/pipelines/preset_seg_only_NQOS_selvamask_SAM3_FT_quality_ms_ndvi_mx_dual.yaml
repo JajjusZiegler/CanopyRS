@@ -1,0 +1,23 @@
+# SAM3 quality + MX Dual NDVI — segmenter + final aggregator only
+#
+# Use this when tiles and detections already exist from a previous run.
+# Pass all paths via an io_config yaml (see -io flag).
+#
+# Pipeline: segmenter(SAM3+NDVI) → aggregator(IoA)
+#
+# ─── Usage ───────────────────────────────────────────────────────────────────
+#   python infer.py \
+#       -c preset_seg_only_NQOS_selvamask_SAM3_FT_quality_ms_ndvi_mx_dual \
+#       -io /path/to/io_config.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+components_configs:
+  - segmenter: segmenters/sam3_multi_selvamask_FT_ensemble_ms_ndvi_mx_dual.yaml
+
+  - aggregator:
+      nms_algorithm: 'ioa-disambiguate'
+      score_threshold: 0.6
+      nms_threshold: 0.05
+      edge_band_buffer_percentage: 0.05
+      scores_weights: {'segmenter_score': 1.0}
+      scores_weighting_method: 'weighted_geometric_mean'

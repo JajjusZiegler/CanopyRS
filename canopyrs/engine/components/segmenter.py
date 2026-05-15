@@ -176,6 +176,15 @@ class SegmenterComponent(BaseComponent):
             and getattr(self.config, 'ms_index_type', None) is not None
         ):
             ms_tiles_path = data_state.ms_tiles_path
+            print(
+                f"SegmenterComponent: MS dual-stream ACTIVE "
+                f"(index={self.config.ms_index_type}, tiles={ms_tiles_path})"
+            )
+        else:
+            if not data_state.ms_tiles_path:
+                print("SegmenterComponent: MS dual-stream INACTIVE (no ms_tiles_path in data_state — RGB only)")
+            else:
+                print("SegmenterComponent: MS dual-stream INACTIVE (ms_index_type not set in segmenter config — RGB only)")
 
         # Run inference (with optional MS tiles for dual-stream segmentation)
         heatmap_output_dir = None

@@ -23,6 +23,12 @@ class InferIOConfig(BaseConfig):
     # different spatial resolution (e.g. 5 cm/px vs. 1 cm/px for RGB).
     multispectral_imagery: Optional[str] = None
 
+    # Optional path to an already-created ms_tiles/ directory (produced by a
+    # previous tilerizer run).  When set, the pipeline seeds DataState with
+    # this path directly so the tilerizer and detector can be skipped entirely
+    # while still enabling dual-stream MS inference in the segmenter.
+    ms_tiles_path: Optional[str] = None
+
     input_gpkg: Optional[str] = None
     input_coco: Optional[str] = None
     infer_gdf_columns_to_pass: Optional[list[str]] = None

@@ -1,0 +1,86 @@
+# Fine-tuning SAM3 segmenter on Pfynwald 20240823
+# Base: sam3_multi_selvamask_FT.yaml (pretrained on SelvaBox + SelvaMask)
+#
+# IMPORTANT: Run detector fine-tuning first, then update 'detector_config_path'
+# and 'detector_cache_dir' below with the saved detector output.
+#
+# Usage:
+#   conda run -n canopyrs_env python train.py \
+#     -m segmenter \
+#     -c canopyrs/config/segmenters/sam3_pfynwald_FT.yaml
+
+# ── Model inference ───────────────────────────────────────────────────────
+model: sam3
+architecture: l
+
+# Start from the SelvaMask fine-tuned checkpoint
+checkpoint_path: https://huggingface.co/CanopyRS/sam3-multi-selvabox-selvamask-FT/resolve/main/sam3_selvamask_ft_model_best.pt
+
+image_batch_size: 1
+box_batch_size: 30
+pp_down_scale_masks_px: 1024
+pp_n_workers: 16
+pp_remove_rings: true
+pp_remove_small_geoms: 50
+pp_simplify_tolerance: 0.0
+
+# ── Data ──────────────────────────────────────────────────────────────────
+data_root_path: '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/training_data'
+train_dataset_names:
+  - pfynwald_20240823
+valid_dataset_names:
+  - pfynwald_20240823
+
+# ── Detector boxes for SAM prompts ────────────────────────────────────────
+# TODO: after detector fine-tuning, set these to the saved checkpoint paths:
+#   detector_config_path  → canopyrs/config/detectors/dino_swinL_pfynwald_FT.yaml
+#   detector_cache_dir    → path where pre-computed detector boxes will be cached
+#   eval_pipeline_config_path → canopyrs/config/pipelines/preset_seg_multi_NQOS_selvamask_SAM3_FT_quality_1cm.yaml
+#   coco_eval_output_dir  → output dir for COCO eval results
+use_detector_boxes: true
+detector_config_path: 'TODO: set to canopyrs/config/detectors/dino_swinL_pfynwald_FT.yaml after detector training'
+detector_cache_dir: 'TODO: set to a local cache dir, e.g. /tmp/canopyrs_detector_cache'
+eval_pipeline_config_path: 'TODO: set to canopyrs/config/pipelines/preset_seg_multi_NQOS_selvamask_SAM3_FT_quality_1cm.yaml'
+coco_eval_output_dir: '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/training_runs/sam3_pfynwald_FT/coco_eval'
+
+# ── Training schedule ─────────────────────────────────────────────────────
+seed: 42
+max_epochs: 100      # reduced from 200 — fine-tuning with limited data
+batch_size: 2
+lr_image_encoder: 1.0e-05   # lower LR for fine-tuning (original: 5e-5)
+lr_others: 1.0e-05           # lower LR for fine-tuning (original: 3e-5)
+weight_decay: 0.01
+max_prompts_per_image: 32
+
+# ── Freezing ──────────────────────────────────────────────────────────────
+# Fine-tune all components (image encoder, prompt encoder, mask decoder)
+freeze_image_encoder: false
+freeze_prompt_encoder: false
+freeze_mask_decoder: false
+
+# ── Box jitter ────────────────────────────────────────────────────────────
+box_noise_scale: 0.0
+
+# ── Augmentation ──────────────────────────────────────────────────────────
+augmentation_image_size:
+  - 1024
+  - 1777
+augmentation_train_crop_size_range:
+  - 666
+  - 2666
+augmentation_crop_prob: 1.0
+augmentation_crop_fallback_to_augmentation_image_size: false
+augmentation_crop_min_intersection_ratio: 0.5
+augmentation_early_conditional_image_size: 2000
+augmentation_flip_horizontal: true
+augmentation_flip_vertical: true
+augmentation_rotation: 30.0
+augmentation_rotation_prob: 0.5
+augmentation_brightness: 0.2
+augmentation_brightness_prob: 0.5
+augmentation_contrast: 0.2
+augmentation_contrast_prob: 0.5
+augmentation_saturation: 0.2
+augmentation_saturation_prob: 0.5
+augmentation_hue: 10
+augmentation_hue_prob: 0.3

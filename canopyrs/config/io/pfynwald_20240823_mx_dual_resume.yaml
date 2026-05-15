@@ -1,0 +1,10 @@
+input_imagery: /mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/exports/20240823_Pfynwald_rgb_model_ortho_smooth_100.tif
+output_folder: /mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/sam3_quality_mx_dual_ndvi
+
+# Reuse tiles and detection COCO from the previous run — skips tilerizer & detector
+tiles_path: /mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/sam3_quality_mx_dual_ndvi/0_tilerizer/20240823_pfynwald_rgb_model_ortho_smooth_100
+input_coco: /mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/sam3_quality_mx_dual_ndvi/1_detector/20240823_pfynwald_rgb_model_ortho_smooth_100_tile_coco_gr0p045_infer.json
+ms_tiles_path: /mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/sam3_quality_mx_dual_ndvi/0_tilerizer/ms_tiles
+
+aoi_config: package
+aoi: /mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/AOI.gpkg

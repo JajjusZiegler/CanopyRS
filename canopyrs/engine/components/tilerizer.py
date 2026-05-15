@@ -239,7 +239,7 @@ class TilerizerComponent(BaseComponent):
                 output_path=self.output_path,
             )
             print(
-                f"TilerizerComponent: Created {len(list(ms_tiles_path.glob('*.tif')))} "
+                f"TilerizerComponent: Created {len(list(ms_tiles_path.rglob('*.tif')))} "
                 f"resampled MS tiles in '{ms_tiles_path}'."
             )
 
@@ -357,28 +357,40 @@ class TilerizerComponent(BaseComponent):
                         transform=ms_transform,
                     )
 
-                    # Read the MS data and resample it on-the-fly to match the
-                    # RGB tile's pixel dimensions.  Using boundless=True ensures
-                    # that border tiles (partially outside the MS extent) are
-                    # filled with zeros instead of raising an error.
+                    # Save MS tiles at their native resolution rather than
+                    # upsampling to the (much larger) RGB tile pixel dimensions.
+                    # The SAM segmenter resizes MS data to match the RGB tile at
+                    # inference time anyway, so upsampling here is pure waste —
+                    # it inflates tile files ~20× for no benefit.
+                    # window_ms.width/height give the native pixel count; we
+                    # clamp to at least 1 pixel to avoid degenerate tiles.
+                    native_h = max(1, round(window_ms.height))
+                    native_w = max(1, round(window_ms.width))
+
                     ms_data = src_ms.read(
                         window=window_ms,
-                        out_shape=(ms_count, rgb_height, rgb_width),
+                        out_shape=(ms_count, native_h, native_w),
                         resampling=Resampling.bilinear,
                         boundless=True,
                         fill_value=0,
                     )
 
-                    # The output metadata mirrors the RGB tile (same CRS,
-                    # transform, dimensions) but with the MS band count/dtype.
+                    # Compute the affine transform for the native-resolution
+                    # MS tile so the geographic metadata stays correct.
+                    from rasterio.transform import from_bounds as transform_from_bounds
+                    ms_tile_transform = transform_from_bounds(
+                        left_ms, bottom_ms, right_ms, top_ms,
+                        native_w, native_h,
+                    )
+
                     ms_meta = {
                         "driver": "GTiff",
                         "dtype": ms_dtype,
-                        "width": rgb_width,
-                        "height": rgb_height,
+                        "width": native_w,
+                        "height": native_h,
                         "count": ms_count,
-                        "crs": rgb_crs if rgb_crs else ms_crs,
-                        "transform": rgb_transform,
+                        "crs": ms_crs,
+                        "transform": ms_tile_transform,
                     }
                     if ms_nodata is not None:
                         ms_meta["nodata"] = ms_nodata

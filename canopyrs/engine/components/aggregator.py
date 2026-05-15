@@ -159,6 +159,32 @@ class AggregatorComponent(BaseComponent):
                 if col in columns_to_pass:
                     columns_to_pass.remove(col)
 
+        # Apply area-based score penalty before NMS so out-of-range polygons are
+        # more likely to be suppressed by NMS rather than surviving into the output.
+        # Penalty = 1.0 inside [min, max]; decays linearly outside, floored at area_penalty_floor.
+        if score_cols and (self.config.min_crown_area_m2 is not None or self.config.max_crown_area_m2 is not None):
+            infer_gdf = infer_gdf.copy()
+            min_m2 = self.config.min_crown_area_m2
+            max_m2 = self.config.max_crown_area_m2
+            floor = self.config.area_penalty_floor
+            areas = infer_gdf.geometry.area
+
+            def _area_penalty(a):
+                if min_m2 is not None and a < min_m2:
+                    return max(floor, a / min_m2)
+                if max_m2 is not None and a > max_m2:
+                    return max(floor, max_m2 / a)
+                return 1.0
+
+            penalties = areas.apply(_area_penalty)
+            n_penalized = (penalties < 1.0).sum()
+            if n_penalized > 0:
+                print(f"AggregatorComponent: area penalty applied to {n_penalized} polygons "
+                      f"(min={min_m2} m², max={max_m2} m², floor={floor})")
+            for col in score_cols:
+                if col in infer_gdf.columns:
+                    infer_gdf[col] = infer_gdf[col] * penalties
+
         # Run aggregation (geodataset Aggregator handles its own file saving)
         aggregator = Aggregator.from_gdf(
             output_path=self.output_path / gpkg_name if self.output_path else None,
@@ -179,6 +205,18 @@ class AggregatorComponent(BaseComponent):
         )
 
         result_gdf = aggregator.polygons_gdf
+
+        # Apply area-based filters (units match CRS, typically m² for projected CRS)
+        n_before = len(result_gdf)
+        if self.config.min_crown_area_m2 is not None:
+            result_gdf = result_gdf[result_gdf.geometry.area >= self.config.min_crown_area_m2]
+        if self.config.max_crown_area_m2 is not None:
+            result_gdf = result_gdf[result_gdf.geometry.area <= self.config.max_crown_area_m2]
+        n_after = len(result_gdf)
+        if n_before != n_after:
+            print(f"AggregatorComponent: area filter removed {n_before - n_after} polygons "
+                  f"(min={self.config.min_crown_area_m2} m², max={self.config.max_crown_area_m2} m²) "
+                  f"→ {n_after} remaining")
 
         # Determine category column for COCO
         coco_categories_col = None

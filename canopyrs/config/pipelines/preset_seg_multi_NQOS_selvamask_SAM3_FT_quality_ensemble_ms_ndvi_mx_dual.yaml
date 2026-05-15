@@ -1,18 +1,19 @@
-# SAM3 quality + MicaSense RedEdge-MX Dual NDVI dual-stream pipeline
+# SAM3 quality ensemble + MicaSense RedEdge-MX Dual NDVI dual-stream pipeline
 #
 # Designed for sites where you have:
 #   - A high-resolution RGB orthomosaic (any standard 3-band GeoTIFF)
 #   - A co-registered MicaSense RedEdge-MX Dual 10-band orthomosaic
 #
 # ─── What this pipeline does ─────────────────────────────────────────────────
-# tilerizer → detector → aggregator(IoU) → segmenter(SAM3+NDVI) → aggregator(IoA)
+# tilerizer → detector → aggregator(IoU) → segmenter(SAM3 ensemble+NDVI) → aggregator(IoA)
 #
 #   1. Tilerizer slices the RGB ortho into 4.5 cm/px tiles.
 #      When -ms points to the MX Dual raster, it also creates co-registered
 #      MS tiles (resampled to match each RGB tile's footprint).
 #   2. Detector (DINO SwinL) runs on the RGB tiles.
 #   3. First aggregator deduplicates cross-tile boxes with IoU NMS.
-#   4. SAM3 quality ensemble runs with 5 jittered box prompts per crown.
+#   4. SAM3 quality ENSEMBLE runs 5 jittered box prompts per crown and averages
+#      them into a heatmap mask (ensemble_method: heatmap).
 #      For each crown the mask from the NDVI (Camera-1: NIR=band4, Red=band2)
 #      greyscale tile is compared to the RGB mask; the one with the higher
 #      predicted IoU score is kept.
@@ -20,10 +21,10 @@
 #
 # ─── Usage ───────────────────────────────────────────────────────────────────
 #   python infer.py \
-#       -c preset_seg_multi_NQOS_selvamask_SAM3_FT_quality_ms_ndvi_mx_dual \
+#       -c preset_seg_multi_NQOS_selvamask_SAM3_FT_quality_ensemble_ms_ndvi_mx_dual \
 #       -i  /path/to/rgb_ortho.tif \
 #       -ms /path/to/mx_dual_10band_ortho.tif \
-#       -o  /tmp/canopyrs_mx_dual_ndvi \
+#       -o  /tmp/canopyrs_mx_dual_ndvi_ensemble \
 #       -aoi /path/to/aoi.gpkg
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -55,5 +56,3 @@ components_configs:
       edge_band_buffer_percentage: 0.05
       scores_weights: {'detector_score': 0.5, 'segmenter_score': 0.5}
       scores_weighting_method: 'weighted_geometric_mean'
-      min_crown_area_m2: 1.0
-      max_crown_area_m2: 50.0

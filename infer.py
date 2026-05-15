@@ -1,6 +1,8 @@
 import argparse
 import logging
+import shutil
 import warnings
+from pathlib import Path
 from warnings import warn
 
 from canopyrs.engine.utils import init_spawn_method
@@ -27,7 +29,7 @@ from canopyrs.engine.config_parsers.base import get_config_path
 from canopyrs.engine.pipeline import Pipeline
 
 
-def pipeline_main(args):
+def pipeline_main(args: argparse.Namespace) -> None:
     config_path = get_config_path(f'{args.config}')
     config = PipelineConfig.from_yaml(config_path)
 
@@ -41,6 +43,23 @@ def pipeline_main(args):
             warn('Removing the first component (tilerizer) from the pipeline as it is not needed, since tiles are already provided as input.')
             config.components_configs.pop(0)
 
+        # Resume from aggregated detections: skip all leading components up to the segmenter.
+        # Useful when tilerization + detection + first aggregation already completed in a
+        # previous run and only the segmentation (and final aggregation) need to be re-run.
+        if args.resume_from_gpkg:
+            if not args.tiles_path:
+                raise ValueError("--resume-from-gpkg requires --tiles-path to be provided.")
+            if not args.input_coco:
+                raise ValueError("--resume-from-gpkg requires --input-coco to be provided (COCO JSON from 2_aggregator/ or 1_detector/).")
+            while config.components_configs and config.components_configs[0][0] != 'segmenter':
+                warn(f"Resuming: skipping completed component '{config.components_configs[0][0]}'")
+                config.components_configs.pop(0)
+            if not config.components_configs:
+                raise ValueError(
+                    "No 'segmenter' component found in pipeline config — "
+                    "cannot resume from stage 2. Check your config."
+                )
+
         config_args = {
             'input_imagery': args.imagery_path,
             'output_folder': args.output_path,
@@ -51,13 +70,24 @@ def pipeline_main(args):
             config_args['aoi'] = args.aoi_path
         if args.multispectral:
             config_args['multispectral_imagery'] = args.multispectral
+        if args.resume_from_gpkg:
+            config_args['input_gpkg'] = args.resume_from_gpkg
+        if args.input_coco:
+            config_args['input_coco'] = args.input_coco
 
         io_config = InferIOConfig(**config_args)
     else:
         raise ValueError("Either provide an io config file or pass imagery/tiles path and output path as arguments.")
 
     pipeline = Pipeline.from_config(io_config, config)
-    pipeline.run(strict_rgb_validation=not args.no_strict_rgb)
+    data_state = pipeline.run(strict_rgb_validation=not args.no_strict_rgb)
+
+    if args.delete_tiles:
+        for attr in ("tiles_path", "ms_tiles_path"):
+            tile_dir = getattr(data_state, attr, None)
+            if tile_dir and Path(tile_dir).exists():
+                shutil.rmtree(tile_dir)
+                print(f"Deleted tiles: {tile_dir}")
 
 
 if __name__ == '__main__':
@@ -75,6 +105,16 @@ if __name__ == '__main__':
                         help="Path to a co-registered multispectral raster (enables dual-stream MS inference).")
     parser.add_argument("--no-strict-rgb", action="store_true", default=False,
                         help="Disable strict RGB band validation (use for multispectral rasters).")
+    parser.add_argument("--delete-tiles", action="store_true", default=False,
+                        help="Delete the tile directory (RGB and MS) after the pipeline finishes successfully.")
+    parser.add_argument("--resume-from-gpkg", type=str, default=None,
+                        help="Path to an existing aggregated-detections GeoPackage (e.g. from 2_aggregator/). "
+                             "Skips all pipeline components before the segmenter (tilerizer, detector, "
+                             "pre-segmenter aggregator). Requires --tiles-path and --input-coco.")
+    parser.add_argument("--input-coco", type=str, default=None,
+                        help="Path to an existing COCO JSON file (e.g. from 2_aggregator/ or 1_detector/). "
+                             "Used together with --resume-from-gpkg to seed infer_coco_path in the pipeline "
+                             "so the segmenter can read bounding-box prompts without re-running detection.")
 
     args = parser.parse_args()
 

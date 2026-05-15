@@ -185,6 +185,97 @@
             "group": "build",
             "presentation": { "reveal": "always", "panel": "shared" },
             "problemMatcher": []
+        },
+
+        // ── Pfynwald 20240823 — evaluation runs ───────────────────────────────
+        // RGB: 20240823_Pfynwald_rgb_model_ortho_smooth_100.tif
+        // MS : 20240823_Pfynwald_multispec_ortho_100cm.tif
+        // AOI: AOI.gpkg
+        // Outputs land in: .../Pfynwald/20240823/CanopyRS/<variant>/
+        {
+            "label": "Eval: SAM3 quality — Pfynwald 20240823 (RGB)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/infer.py -c preset_seg_multi_NQOS_selvamask_SAM3_FT_quality -i '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/exports/20240823_Pfynwald_rgb_model_ortho_smooth_100.tif' -aoi '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/AOI.gpkg' -o '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/sam3_quality'",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Eval: SAM3 quality 1cm — Pfynwald 20240823 (RGB)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/infer.py -c preset_seg_multi_NQOS_selvamask_SAM3_FT_quality_1cm -i '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/exports/20240823_Pfynwald_rgb_model_ortho_smooth_100.tif' -aoi '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/AOI.gpkg' -o '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/sam3_quality_1cm'",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Eval: SAM3 quality + MX Dual NDVI — Pfynwald 20240823 (RGB+MS)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/infer.py -c preset_seg_multi_NQOS_selvamask_SAM3_FT_quality_ms_ndvi_mx_dual -i '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/exports/20240823_Pfynwald_rgb_model_ortho_smooth_100.tif' -ms '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/exports/20240823_Pfynwald_multispec_ortho_100cm.tif' -aoi '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/AOI.gpkg' -o '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/sam3_quality_mx_dual_ndvi'",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Eval: SAM3 quality ensemble + MX Dual NDVI — Pfynwald 20240823 (RGB+MS)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/infer.py -c preset_seg_multi_NQOS_selvamask_SAM3_FT_quality_ensemble_ms_ndvi_mx_dual -i '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/exports/20240823_Pfynwald_rgb_model_ortho_smooth_100.tif' -ms '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/exports/20240823_Pfynwald_multispec_ortho_100cm.tif' -aoi '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/AOI.gpkg' -o '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/sam3_quality_ensemble_mx_dual_ndvi'",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+
+        // ── Temporal crown matching ───────────────────────────────────────────
+        // Matches crown polygons across dates, assigns stable crown_id values,
+        // and outputs reference_crowns_PFY.gpkg + per-date *_matched.gpkg files.
+        //
+        // IMPORTANT: Update the -i paths to point to the actual final .gpkg
+        //   from each date's inference run once those runs are complete.
+        //   The 20240823 path below is confirmed; 20250704 is a template.
+        //
+        // Flags:
+        //   --iou-threshold  IoU cutoff to link two polygons as the same tree (0.3)
+        //   --min-dates      Minimum dates seen to appear in reference output (1 = all)
+        //   --geometry-method  best_score | union | largest
+        {
+            "label": "Match: temporal crowns — Pfynwald (all available dates)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/tools/temporal_crown_matcher.py --site PFY --dates 20240823 20250704 -i '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/sam3_quality_mx_dual_ndvi/20240823_pfynwald_rgb_model_ortho_smooth_100_sf1p0_inferfinal.gpkg' '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20250704/CanopyRS/sam3_quality_mx_dual_ndvi/20250704_pfynwald_rgb_model_ortho_smooth_100_sf1p0_inferfinal.gpkg' -o '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/temporal/' --iou-threshold 0.3 --min-dates 1 --geometry-method best_score",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Match: temporal crowns — Pfynwald (smoke test, output to /tmp)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/tools/temporal_crown_matcher.py --site PFY --dates 20240823 20240823 -i '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/sam3_quality_mx_dual_ndvi/20240823_pfynwald_rgb_model_ortho_smooth_100_sf1p0_inferfinal.gpkg' '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/sam3_quality_mx_dual_ndvi/20240823_pfynwald_rgb_model_ortho_smooth_100_sf1p0_inferfinal.gpkg' -o '/tmp/canopyrs_temporal_test/' --iou-threshold 0.3 --min-dates 1 --geometry-method best_score",
+            "group": "test",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Batch: SAM3 quality + MX Dual NDVI — Pfynwald temporal (dry-run, tmp)",
+            "type": "shell",
+            "command": "bash ${CANOPYRS_REPO}/batch_infer.sh -c preset_seg_multi_NQOS_selvamask_SAM3_FT_quality_ms_ndvi_mx_dual --ms-pattern '*_multispec_ortho_100cm.tif' --aoi '/mnt/m/working_package_2/2024_dronecampaign/00_info/Sites/Pfynwald/Subset.gpkg' --output-root '/mnt/m/working_package_2/2024_dronecampaign/tmp' --dry-run '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald'",
+            "group": "test",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Batch: SAM3 quality + MX Dual NDVI — Pfynwald temporal (all dates, tmp)",
+            "type": "shell",
+            "command": "bash ${CANOPYRS_REPO}/batch_infer.sh -c preset_seg_multi_NQOS_selvamask_SAM3_FT_quality_ms_ndvi_mx_dual --ms-pattern '*_multispec_ortho_100cm.tif' --aoi '/mnt/m/working_package_2/2024_dronecampaign/00_info/Sites/Pfynwald/Subset.gpkg' --output-root '/mnt/m/working_package_2/2024_dronecampaign/tmp' --skip-errors '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald'",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Match: temporal crowns — Pfynwald (discover from tmp)",
+            "type": "shell",
+            "command": "conda run -n canopyrs_env python ${CANOPYRS_REPO}/tools/temporal_crown_matcher.py --site PFY --discover '/mnt/m/working_package_2/2024_dronecampaign/tmp' -o '/mnt/m/working_package_2/2024_dronecampaign/tmp/temporal_ioa' --match-metric ioa --ioa-threshold 0.5 --centroid-distance 1.5 --max-date-gap 2 --min-dates 1 --geometry-method best_score",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "new" },
+            "problemMatcher": []
         }
     ]
 }

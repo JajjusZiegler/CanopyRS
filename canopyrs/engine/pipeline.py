@@ -179,6 +179,7 @@ class Pipeline:
             infer_gdf=infer_gdf,
             infer_gdf_columns_to_pass=infer_gdf_columns_to_pass,
             ms_imagery_path=io_config.multispectral_imagery,
+            ms_tiles_path=io_config.ms_tiles_path,
         )
 
         green_print("Pipeline initialized")

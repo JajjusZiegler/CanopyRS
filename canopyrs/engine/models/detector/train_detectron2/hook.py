@@ -51,8 +51,10 @@ class WandbWriterHook(HookBase):
         assert task in ["detection", "segmentation"], "Task must be either 'detection' or 'segmentation'"
 
     def before_train(self):
-        # Initialize wandb with the trainer’s config.
-        # (Replace "your_project_name" with your wandb project name.)
+        # Skip W&B entirely when no project name is configured.
+        if not self.wandb_project_name:
+            return
+        # Initialize wandb with the trainer's config.
         if comm.is_main_process():
             run = wandb.init(
                 project=self.wandb_project_name,
@@ -92,6 +94,8 @@ class WandbWriterHook(HookBase):
 
     def after_step(self):
         # Log training loss every train_log_interval iterations.
+        if not self.wandb_project_name:
+            return
         if self.trainer.iter % self.train_log_interval == 0 and comm.is_main_process():
             # Retrieve the metrics stored in Detectron2's storage
             metrics = self.trainer.storage.latest()
@@ -108,5 +112,7 @@ class WandbWriterHook(HookBase):
             wandb.log(log_data, step=self.trainer.iter)
 
     def after_train(self):
+        if not self.wandb_project_name:
+            return
         wandb.finish()
         print("wandb finished.")

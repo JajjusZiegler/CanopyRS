@@ -52,8 +52,9 @@ SKIP_EXISTING=true
 SKIP_ERRORS=false
 LOCAL_CACHE=false
 LOCAL_CACHE_DIR="$HOME/data/_canopyrs_cache"
+DELETE_TILES=false
 ENV_NAME="canopyrs_env"
-REPO_DIR="$HOME/projects/CanopyRS"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -76,6 +77,7 @@ while [[ $# -gt 0 ]]; do
         --dry-run)    DRY_RUN=true;           shift ;;
         --force)      FORCE=true; SKIP_EXISTING=false; shift ;;
         --skip-errors) SKIP_ERRORS=true;      shift ;;
+        --delete-tiles) DELETE_TILES=true;    shift ;;
         --local-cache) LOCAL_CACHE=true;      shift ;;
         --cache-dir)  LOCAL_CACHE_DIR="$2";   shift 2 ;;
         -h|--help)
@@ -138,6 +140,75 @@ fi
 info "Found ${#DATE_DIRS[@]} date folder(s): $(basename -a "${DATE_DIRS[@]}" | tr '\n' ' ')"
 echo ""
 
+# ── Filename sanitizer ───────────────────────────────────────────────────────
+# geodataset requires product names matching ^[a-z0-9]+(?:_[a-z0-9]+)*$
+# This function converts a filename stem to that format:
+#   • transliterates non-ASCII (ü→u, ä→a, ö→o, é→e …) via iconv
+#   • lowercases
+#   • replaces any remaining non-alphanumeric chars with underscores
+#   • collapses repeated underscores
+sanitize_stem() {
+    echo "$1" \
+        | iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed 's/[^a-z0-9]/_/g; s/__*/_/g; s/^_//; s/_$//'
+}
+
+# ── Stage detection ───────────────────────────────────────────────────────────
+# Inspect an output directory and return which pipeline stage has completed.
+#
+# Output (newline-separated):
+#   DONE                          — *_inferfinal.gpkg found; nothing left to do
+#   STAGE2\n<gpkg>\n<tiles_dir>   — aggregated detections + tiles present; resume from segmenter
+#   STAGE0\n<tiles_dir>           — tiles present but no aggregated detections; resume from detector
+#   FRESH                         — no intermediate outputs; start from scratch
+#
+# Stage 2 resumes are only possible when 2_aggregator/*.gpkg (non-notaggregated)
+# AND 0_tilerizer/*/tiles/ both exist (tiles must not have been deleted).
+detect_stage() {
+    local out_dir="$1"
+
+    # Complete: final GeoPackage exists in the output root
+    if find "$out_dir" -maxdepth 1 -name '*_inferfinal.gpkg' -quit 2>/dev/null | grep -q .; then
+        echo "DONE"; return
+    fi
+
+    # Stage 2: aggregated detections + tiles both present
+    if [ -d "$out_dir/2_aggregator" ]; then
+        local agg_gpkg
+        agg_gpkg=$(find "$out_dir/2_aggregator" -maxdepth 1 -name '*.gpkg' \
+            ! -name '*notaggregated*' 2>/dev/null | sort | head -1)
+        if [ -n "$agg_gpkg" ]; then
+            local tiles_dir
+            tiles_dir=$(find "$out_dir/0_tilerizer" -maxdepth 2 -type d -name 'tiles' \
+                2>/dev/null | head -1)
+            if [ -n "$tiles_dir" ] && [ -d "$tiles_dir" ]; then
+                # Prefer COCO JSON from 2_aggregator; fall back to 1_detector
+                local coco_json
+                coco_json=$(find "$out_dir/2_aggregator" -maxdepth 1 -name '*.json' \
+                    2>/dev/null | head -1)
+                [ -z "$coco_json" ] && coco_json=$(find "$out_dir/1_detector" \
+                    -maxdepth 1 -name '*.json' 2>/dev/null | head -1)
+                if [ -n "$coco_json" ]; then
+                    echo "STAGE2"; echo "$agg_gpkg"; echo "$tiles_dir"; echo "$coco_json"; return
+                fi
+            fi
+        fi
+    fi
+
+    # Stage 0: tiles present but aggregated detections absent/tiles missing for stage2
+    if [ -d "$out_dir/0_tilerizer" ]; then
+        local tiles_dir
+        tiles_dir=$(find "$out_dir/0_tilerizer" -maxdepth 2 -type d -name 'tiles' \
+            2>/dev/null | head -1)
+        if [ -n "$tiles_dir" ] && [ -d "$tiles_dir" ]; then
+            echo "STAGE0"; echo "$tiles_dir"; return
+        fi
+    fi
+
+    echo "FRESH"
+}
+
 # ── Counters & log ────────────────────────────────────────────────────────────
 COUNT_OK=0; COUNT_SKIP=0; COUNT_FAIL=0; COUNT_NOTIF=0
 LOG_FILE="/tmp/canopyrs_rgb_$(date +%Y%m%d_%H%M%S).log"
@@ -171,17 +242,26 @@ for DATE_DIR in "${DATE_DIRS[@]}"; do
     TIF_SIZE=$(du -h "$TIF" 2>/dev/null | cut -f1)
     info "TIF: $TIF_NAME ($TIF_SIZE)"
 
-    # Skip if already done
-    EXISTING=$(find "$OUTPUT_DIR" -maxdepth 1 -name "*_inferfinal.gpkg" 2>/dev/null | head -1)
-    if [ -n "$EXISTING" ] && [ "$SKIP_EXISTING" = true ] && [ "$FORCE" = false ]; then
-        warn "Already processed ($(basename "$EXISTING")) — use --force to re-run"
-        echo "[$DATE] SKIP: already done" >> "$LOG_FILE"
-        COUNT_SKIP=$((COUNT_SKIP + 1)); continue
+    # Detect pipeline stage (handles skip + resume in one pass)
+    mapfile -t STAGE_RESULT < <(detect_stage "$OUTPUT_DIR")
+    STAGE="${STAGE_RESULT[0]:-FRESH}"
+
+    if [ "$STAGE" = "DONE" ]; then
+        if [ "$SKIP_EXISTING" = true ] && [ "$FORCE" = false ]; then
+            warn "Already complete — skipping. Use --force to re-run."
+            echo "[$DATE] SKIP: already done" >> "$LOG_FILE"
+            COUNT_SKIP=$((COUNT_SKIP + 1)); continue
+        fi
     fi
 
     if [ "$DRY_RUN" = true ]; then
-        info "DRY-RUN: $TIF_NAME → $OUTPUT_DIR"
-        echo "[$DATE] DRY-RUN: $TIF_NAME" >> "$LOG_FILE"
+        case "$STAGE" in
+            DONE)    info "DRY-RUN: already complete → $OUTPUT_DIR" ;;
+            STAGE2)  info "DRY-RUN: would resume from stage 2 (aggregated detections) → $OUTPUT_DIR" ;;
+            STAGE0)  info "DRY-RUN: would resume from stage 0 (existing tiles) → $OUTPUT_DIR" ;;
+            FRESH)   info "DRY-RUN: would run from scratch → $OUTPUT_DIR" ;;
+        esac
+        echo "[$DATE] DRY-RUN: $TIF_NAME ($STAGE)" >> "$LOG_FILE"
         continue
     fi
 
@@ -190,6 +270,7 @@ for DATE_DIR in "${DATE_DIRS[@]}"; do
     # Optional local cache copy (avoids repeated reads from network drives)
     INFER_TIF="$TIF"
     LOCAL_TIF=""
+    SYMLINK_TIF=""  # symlink used when filename needs sanitizing
     if [ "$LOCAL_CACHE" = true ]; then
         mkdir -p "$LOCAL_CACHE_DIR"
         LOCAL_TIF="$LOCAL_CACHE_DIR/$TIF_NAME"
@@ -204,9 +285,44 @@ for DATE_DIR in "${DATE_DIRS[@]}"; do
         INFER_TIF="$LOCAL_TIF"
     fi
 
+    # Sanitize TIF filename if it contains chars geodataset rejects
+    # (non-ASCII, uppercase, hyphens). Create a symlink with a clean name.
+    TIF_STEM="${TIF_NAME%.tif}"
+    CLEAN_STEM=$(sanitize_stem "$TIF_STEM")
+    if [ "$CLEAN_STEM" != "$TIF_STEM" ]; then
+        SYMLINK_DIR="/tmp/canopyrs_symlinks"
+        mkdir -p "$SYMLINK_DIR"
+        SYMLINK_TIF="$SYMLINK_DIR/${CLEAN_STEM}.tif"
+        ln -sf "$INFER_TIF" "$SYMLINK_TIF"
+        info "Filename sanitized: '$TIF_STEM' → '$CLEAN_STEM' (symlink)"
+        INFER_TIF="$SYMLINK_TIF"
+    fi
+
+    # Build resume args based on detected stage
+    RESUME_ARGS=()
+    case "$STAGE" in
+        STAGE2)
+            AGG_GPKG="${STAGE_RESULT[1]}"
+            TILES_DIR="${STAGE_RESULT[2]}"
+            COCO_JSON="${STAGE_RESULT[3]}"
+            RESUME_ARGS=( --resume-from-gpkg "$AGG_GPKG" -t "$TILES_DIR" --input-coco "$COCO_JSON" )
+            info "Resuming from stage 2 — aggregated detections: $(basename "$AGG_GPKG")"
+            info "  Tiles: $TILES_DIR"
+            info "  COCO: $(basename "$COCO_JSON")"
+            ;;
+        STAGE0)
+            TILES_DIR="${STAGE_RESULT[1]}"
+            RESUME_ARGS=( -t "$TILES_DIR" )
+            info "Resuming from stage 0 — existing tiles: $TILES_DIR"
+            ;;
+        DONE|FRESH) ;;
+    esac
+
     # Build command
     CMD=( "$PYTHON" "$REPO_DIR/infer.py" -c "$CONFIG" -i "$INFER_TIF" -o "$OUTPUT_DIR" )
-    [ -n "$AOI_PATH" ] && CMD+=( -aoi "$AOI_PATH" )
+    [ -n "$AOI_PATH" ]     && CMD+=( -aoi "$AOI_PATH" )
+    [ "$DELETE_TILES" = true ] && CMD+=( --delete-tiles )
+    CMD+=( "${RESUME_ARGS[@]}" )
 
     info "Running inference → $OUTPUT_DIR"
     START_TIME=$(date +%s)
@@ -215,11 +331,11 @@ for DATE_DIR in "${DATE_DIRS[@]}"; do
         ELAPSED=$(( $(date +%s) - START_TIME ))
         ELAPSED_FMT=$(printf '%dm%02ds' $((ELAPSED/60)) $((ELAPSED%60)))
         success "Done in $ELAPSED_FMT → $OUTPUT_DIR"
-        echo "[$DATE] OK: $TIF_NAME ($ELAPSED_FMT)" >> "$LOG_FILE"
+        echo "[$DATE] OK: $TIF_NAME ($ELAPSED_FMT, resume=$STAGE)" >> "$LOG_FILE"
         COUNT_OK=$((COUNT_OK + 1))
     else
         fail "Inference failed for $DATE"
-        echo "[$DATE] FAIL: $TIF_NAME" >> "$LOG_FILE"
+        echo "[$DATE] FAIL: $TIF_NAME (stage=$STAGE)" >> "$LOG_FILE"
         COUNT_FAIL=$((COUNT_FAIL + 1))
         if [ "$SKIP_ERRORS" = false ]; then
             echo -e "\n${RED}Stopping. Use --skip-errors to continue on failure.${NC}"
@@ -227,9 +343,13 @@ for DATE_DIR in "${DATE_DIRS[@]}"; do
         fi
     fi
 
-    # Clean up local cache
+    # Clean up local cache and any sanitizing symlink
     if [ "$LOCAL_CACHE" = true ] && [ -n "$LOCAL_TIF" ] && [ -f "$LOCAL_TIF" ]; then
         rm -f "$LOCAL_TIF"
+    fi
+    if [ -n "$SYMLINK_TIF" ] && [ -L "$SYMLINK_TIF" ]; then
+        rm -f "$SYMLINK_TIF"
+        SYMLINK_TIF=""
     fi
 
     echo ""

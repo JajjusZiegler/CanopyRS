@@ -16,6 +16,13 @@ class AggregatorConfig(BaseConfig):
     edge_band_buffer_percentage: float = 0.05
     best_geom_keep_area_ratio: float = 0.5
 
+    # Area-based filtering and score penalty (units match the CRS, typically m²)
+    # Penalty is applied to score columns before NMS so that out-of-range polygons
+    # are more likely to be suppressed. Hard filter removes survivors after NMS.
+    min_crown_area_m2: Optional[float] = None
+    max_crown_area_m2: Optional[float] = None
+    area_penalty_floor: float = 0.1  # minimum score multiplier for out-of-range polygons
+
     # Optional dict-style scores_weights for YAML compatibility
     scores_weights: Optional[Dict[str, float]] = None
 

@@ -1,0 +1,79 @@
+# Fine-tuning DINO Swin-L detector on Pfynwald 20240823
+# Base: dino_swinL_multi_NQOS_selvamask_FT.yaml (pretrained on SelvaBox + SelvaMask)
+#
+# Usage:
+#   conda run -n canopyrs_env python train.py \
+#     -m detector \
+#     -c canopyrs/config/detectors/dino_swinL_pfynwald_FT.yaml
+
+model: dino_detrex
+architecture: dino/configs/dino-swin/dino_swin_large_384_5scale_36ep.py
+
+# Start from the SelvaBox + SelvaMask fine-tuned checkpoint
+checkpoint_path: https://huggingface.co/CanopyRS/dino-swin-l-384-multi-NQOS-selvamask-FT/resolve/main/model_best.pth
+
+# ── Data ──────────────────────────────────────────────────────────────────
+data_root_path: '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/training_data'
+train_dataset_names:
+  - pfynwald_20240823
+valid_dataset_names:
+  - pfynwald_20240823
+test_dataset_names: []
+
+# ── Output ────────────────────────────────────────────────────────────────
+train_output_path: '/mnt/m/working_package_2/2024_dronecampaign/02_processing/metashape_projects/Upscale_Metashapeprojects/Pfynwald/20240823/CanopyRS/training_runs/dino_pfynwald_FT'
+wandb_project: null   # set to e.g. 'CanopyRS-Pfynwald' to enable Weights & Biases logging
+
+# ── Training schedule ─────────────────────────────────────────────────────
+# Reduced from 800 epochs — with ~1.6 ha of data, short fine-tuning avoids overfitting
+max_epochs: 200
+scheduler_epochs_steps:
+  - 160
+  - 185
+scheduler_gamma: 0.1
+scheduler_type: WarmupCosineLR
+scheduler_warmup_steps: 50
+
+# ── Optimizer ─────────────────────────────────────────────────────────────
+lr: 1.0e-05          # lower LR for fine-tuning (original: 5e-5)
+use_amp: true
+use_gradient_checkpointing: true
+grad_accumulation_steps: 1
+
+# ── Model ─────────────────────────────────────────────────────────────────
+num_classes: 1
+box_predictions_per_image: 500
+backbone_model_pretrained: true
+freeze_layers: 2     # keep backbone frozen; fine-tune transformer layers + heads only
+
+# ── Dataloader ────────────────────────────────────────────────────────────
+batch_size: 1
+dataloader_num_workers: 4
+eval_epoch_interval: 5
+train_log_interval: 10
+main_metric: bbox/AP
+seed: 33
+
+# ── Augmentation ──────────────────────────────────────────────────────────
+augmentation_image_size:
+  - 1024
+  - 1777
+augmentation_train_crop_size_range:
+  - 666
+  - 2666
+augmentation_crop_prob: 1.0
+augmentation_crop_fallback_to_augmentation_image_size: false
+augmentation_crop_min_intersection_ratio: 0.5
+augmentation_early_conditional_image_size: 2000
+augmentation_flip_horizontal: true
+augmentation_flip_vertical: true
+augmentation_rotation: 30.0
+augmentation_rotation_prob: 0.5
+augmentation_brightness: 0.2
+augmentation_brightness_prob: 0.5
+augmentation_contrast: 0.2
+augmentation_contrast_prob: 0.5
+augmentation_saturation: 0.2
+augmentation_saturation_prob: 0.5
+augmentation_hue: 10
+augmentation_hue_prob: 0.3

@@ -4,7 +4,7 @@ architecture: l
 checkpoint_path: https://huggingface.co/CanopyRS/sam3-multi-selvabox-selvamask-FT/resolve/main/sam3_selvamask_ft_model_best.pt
 image_batch_size: 1
 box_batch_size: 30
-pp_down_scale_masks_px: 512
+pp_down_scale_masks_px: 1024
 pp_n_workers: 16
 pp_remove_rings: true
 pp_remove_small_geoms: 50
