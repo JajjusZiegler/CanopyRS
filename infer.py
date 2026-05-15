@@ -37,28 +37,48 @@ def pipeline_main(args: argparse.Namespace) -> None:
         raise ValueError("Either provide an io config file or pass imagery/tiles path and output path as arguments.")
     elif args.io_config_path:
         io_config = InferIOConfig.from_yaml(args.io_config_path)
+        component_ids = None  # use default sequential IDs
     elif (args.imagery_path or args.tiles_path) and args.output_path:
-        # Check if the first component is 'tilerizer' and remove it if tiles are provided (i.e. tilerizer is not needed).
+        # Track the original index of each component so folders always get their
+        # canonical IDs (0_tilerizer, 1_detector … 3_segmenter, 4_aggregator)
+        # even when leading/middle components are skipped for a resume run.
+        component_ids = list(range(len(config.components_configs)))
+
+        # Remove tilerizer if tiles are already provided (tilerizer not needed).
         if args.tiles_path and args.imagery_path is None and config.components_configs[0][0] == 'tilerizer':
             warn('Removing the first component (tilerizer) from the pipeline as it is not needed, since tiles are already provided as input.')
             config.components_configs.pop(0)
+            component_ids.pop(0)
 
-        # Resume from aggregated detections: skip all leading components up to the segmenter.
-        # Useful when tilerization + detection + first aggregation already completed in a
-        # previous run and only the segmentation (and final aggregation) need to be re-run.
+        # Resume from aggregated detections: skip components already completed.
         if args.resume_from_gpkg:
-            if not args.tiles_path:
-                raise ValueError("--resume-from-gpkg requires --tiles-path to be provided.")
             if not args.input_coco:
                 raise ValueError("--resume-from-gpkg requires --input-coco to be provided (COCO JSON from 2_aggregator/ or 1_detector/).")
-            while config.components_configs and config.components_configs[0][0] != 'segmenter':
-                warn(f"Resuming: skipping completed component '{config.components_configs[0][0]}'")
-                config.components_configs.pop(0)
-            if not config.components_configs:
-                raise ValueError(
-                    "No 'segmenter' component found in pipeline config — "
-                    "cannot resume from stage 2. Check your config."
+
+            if args.tiles_path:
+                # Tiles exist: skip every component before the segmenter.
+                while config.components_configs and config.components_configs[0][0] != 'segmenter':
+                    warn(f"Resuming: skipping completed component '{config.components_configs[0][0]}'")
+                    config.components_configs.pop(0)
+                    component_ids.pop(0)
+            else:
+                # Tiles were deleted but aggregated detections exist: keep the
+                # tilerizer so tiles are recreated, then skip detector + first
+                # aggregator and jump straight to the segmenter.
+                seg_pos = next(
+                    (i for i, (t, _) in enumerate(config.components_configs) if t == 'segmenter'),
+                    None
                 )
+                if seg_pos is None:
+                    raise ValueError("No 'segmenter' component found in pipeline config — cannot resume.")
+                # Remove everything between tilerizer (index 0) and segmenter.
+                for _ in range(seg_pos - 1):
+                    warn(f"Resuming (re-tilerize): skipping completed component '{config.components_configs[1][0]}'")
+                    config.components_configs.pop(1)
+                    component_ids.pop(1)
+
+            if not config.components_configs or config.components_configs[0][0] not in ('segmenter', 'tilerizer'):
+                raise ValueError("No 'segmenter' component found in pipeline config — cannot resume.")
 
         config_args = {
             'input_imagery': args.imagery_path,
@@ -79,7 +99,7 @@ def pipeline_main(args: argparse.Namespace) -> None:
     else:
         raise ValueError("Either provide an io config file or pass imagery/tiles path and output path as arguments.")
 
-    pipeline = Pipeline.from_config(io_config, config)
+    pipeline = Pipeline.from_config(io_config, config, component_ids=component_ids)
     data_state = pipeline.run(strict_rgb_validation=not args.no_strict_rgb)
 
     if args.delete_tiles:

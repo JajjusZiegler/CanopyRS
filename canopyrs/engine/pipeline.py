@@ -94,7 +94,8 @@ class Pipeline:
         self._validate_pipeline(raise_on_error=True)
 
     @classmethod
-    def from_config(cls, io_config: InferIOConfig, config: PipelineConfig, verbose: bool = True) -> 'Pipeline':
+    def from_config(cls, io_config: InferIOConfig, config: PipelineConfig, verbose: bool = True,
+                    component_ids: Optional[List[int]] = None) -> 'Pipeline':
         """
         Create a Pipeline from configuration objects.
 
@@ -126,8 +127,9 @@ class Pipeline:
         )
 
         # Instantiate components from config
+        _component_ids = component_ids if component_ids is not None else list(range(len(config.components_configs)))
         components = []
-        for component_id, (component_type, component_config) in enumerate(config.components_configs):
+        for component_id, (component_type, component_config) in zip(_component_ids, config.components_configs):
             if component_type == 'tilerizer':
                 component = TilerizerComponent(
                     component_config, output_path, component_id, infer_aois_config

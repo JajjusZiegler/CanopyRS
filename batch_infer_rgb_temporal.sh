@@ -158,10 +158,11 @@ sanitize_stem() {
 # Inspect an output directory and return which pipeline stage has completed.
 #
 # Output (newline-separated):
-#   DONE                          — *_inferfinal.gpkg found; nothing left to do
-#   STAGE2\n<gpkg>\n<tiles_dir>   — aggregated detections + tiles present; resume from segmenter
-#   STAGE0\n<tiles_dir>           — tiles present but no aggregated detections; resume from detector
-#   FRESH                         — no intermediate outputs; start from scratch
+#   DONE                               — *_inferfinal.gpkg found; nothing left to do
+#   STAGE2\n<gpkg>\n<tiles_dir>\n<coco> — aggregated detections + tiles present; resume from segmenter
+#   STAGE2_NOTILES\n<gpkg>\n<coco>     — aggregated detections exist but tiles deleted; re-tilerize then resume
+#   STAGE0\n<tiles_dir>                — tiles present but no aggregated detections; resume from detector
+#   FRESH                              — no intermediate outputs; start from scratch
 #
 # Stage 2 resumes are only possible when 2_aggregator/*.gpkg (non-notaggregated)
 # AND 0_tilerizer/*/tiles/ both exist (tiles must not have been deleted).
@@ -179,18 +180,21 @@ detect_stage() {
         agg_gpkg=$(find "$out_dir/2_aggregator" -maxdepth 1 -name '*.gpkg' \
             ! -name '*notaggregated*' 2>/dev/null | sort | head -1)
         if [ -n "$agg_gpkg" ]; then
-            local tiles_dir
-            tiles_dir=$(find "$out_dir/0_tilerizer" -maxdepth 2 -type d -name 'tiles' \
+            # Prefer COCO JSON from 2_aggregator; fall back to 1_detector
+            local coco_json
+            coco_json=$(find "$out_dir/2_aggregator" -maxdepth 1 -name '*.json' \
                 2>/dev/null | head -1)
-            if [ -n "$tiles_dir" ] && [ -d "$tiles_dir" ]; then
-                # Prefer COCO JSON from 2_aggregator; fall back to 1_detector
-                local coco_json
-                coco_json=$(find "$out_dir/2_aggregator" -maxdepth 1 -name '*.json' \
+            [ -z "$coco_json" ] && coco_json=$(find "$out_dir/1_detector" \
+                -maxdepth 1 -name '*.json' 2>/dev/null | head -1)
+            if [ -n "$coco_json" ]; then
+                local tiles_dir
+                tiles_dir=$(find "$out_dir/0_tilerizer" -maxdepth 2 -type d -name 'tiles' \
                     2>/dev/null | head -1)
-                [ -z "$coco_json" ] && coco_json=$(find "$out_dir/1_detector" \
-                    -maxdepth 1 -name '*.json' 2>/dev/null | head -1)
-                if [ -n "$coco_json" ]; then
+                if [ -n "$tiles_dir" ] && [ -d "$tiles_dir" ]; then
                     echo "STAGE2"; echo "$agg_gpkg"; echo "$tiles_dir"; echo "$coco_json"; return
+                else
+                    # Tiles deleted but detections intact — re-tilerize then resume
+                    echo "STAGE2_NOTILES"; echo "$agg_gpkg"; echo "$coco_json"; return
                 fi
             fi
         fi
@@ -308,6 +312,13 @@ for DATE_DIR in "${DATE_DIRS[@]}"; do
             RESUME_ARGS=( --resume-from-gpkg "$AGG_GPKG" -t "$TILES_DIR" --input-coco "$COCO_JSON" )
             info "Resuming from stage 2 — aggregated detections: $(basename "$AGG_GPKG")"
             info "  Tiles: $TILES_DIR"
+            info "  COCO: $(basename "$COCO_JSON")"
+            ;;
+        STAGE2_NOTILES)
+            AGG_GPKG="${STAGE_RESULT[1]}"
+            COCO_JSON="${STAGE_RESULT[2]}"
+            RESUME_ARGS=( --resume-from-gpkg "$AGG_GPKG" --input-coco "$COCO_JSON" )
+            info "Resuming from stage 2 (tiles deleted — will re-tilerize): $(basename "$AGG_GPKG")"
             info "  COCO: $(basename "$COCO_JSON")"
             ;;
         STAGE0)
